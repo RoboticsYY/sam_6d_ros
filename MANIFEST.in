@@ -1,0 +1,2 @@
+# Include all .npy files within the package
+recursive-include sam_6d_ros *.npy

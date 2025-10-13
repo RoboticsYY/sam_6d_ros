@@ -52,6 +52,7 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
+    include_package_data=True,
     maintainer='dev',
     maintainer_email='yu.yan@intel.com',
     description='ROS2 package for 6D pose estimation with SAM-6D',

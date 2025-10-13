@@ -2,5 +2,6 @@ pose_estimation:
     ros__parameters:
         segmentor_model: "sam"
         output_dir : "/tmp/sam_6d_ros"
-        cad_path : "/tmp/sam_6d_ros/cad"
+        cad_path : "/tmp/sam_6d_ros/cad/logistics-box.ply"
         stability_score_thresh : 0.97
+        depth_scale : 1.0
