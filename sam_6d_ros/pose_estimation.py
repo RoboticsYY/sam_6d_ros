@@ -13,6 +13,7 @@ import shutil
 from tqdm import tqdm
 import time
 import torch
+import torch.nn as nn
 from PIL import Image
 import logging
 import os, sys
@@ -41,6 +42,9 @@ from sam_6d_ros.instance_segmentation_model.utils.bbox_utils import CropResizePa
 from sam_6d_ros.instance_segmentation_model.model.utils import Detections, convert_npz_to_json
 from sam_6d_ros.instance_segmentation_model.model.loss import Similarity
 from sam_6d_ros.instance_segmentation_model.utils.inout import load_json, save_json_bop23
+from torch.serialization import safe_globals
+from ultralytics.nn.tasks import SegmentationModel
+
 
 def visualize(rgb, detections, save_path="tmp.png"):
     img = rgb.copy()
@@ -143,6 +147,7 @@ class PoseEstimation:
         )
         self.srv = node.create_service(GetPose, 'get_pose', self.handle_get_pose)
         
+
         self.segmentor_model = node.get_parameter('segmentor_model').value
         self.node.get_logger().info(f'Segmenration model is: {self.segmentor_model}')
 
@@ -159,6 +164,10 @@ class PoseEstimation:
         self.depth_scale = np.array(self.depth_scale).astype(np.float32)
         self.node.get_logger().info(f'Depth scale is: {self.depth_scale}')
 
+        visualize_param = node.get_parameter('visualize').value
+        self.visualize = bool(visualize_param)
+        self.node.get_logger().info(f'Visualize is: {self.visualize}')
+
         self.node.get_logger().info(f"Current working directory: {os.getcwd()}")
         with initialize(version_base=None, config_path='instance_segmentation_model/configs'):
             self.cfg = compose(config_name='run_inference.yaml')
@@ -174,6 +183,11 @@ class PoseEstimation:
             raise ValueError("The segmentor_model {} is not supported now!".format(self.segmentor_model))        
 
         self.node.get_logger().info("Initializing model")
+        # Allowlist classes needed for unpickling FastSAM (PyTorch >=2.6 weights_only security)
+        try:
+            torch.serialization.add_safe_globals([SegmentationModel, nn.Sequential])
+        except Exception as e:
+            self.node.get_logger().warn(f"Failed registering safe globals: {e}")
         self.ism_model = instantiate(self.cfg.model)
         
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
