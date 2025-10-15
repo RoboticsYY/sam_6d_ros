@@ -1,0 +1,45 @@
+ninja_required_version = 1.3
+cxx = c++
+nvcc = /usr/local/cuda-12.8/bin/nvcc
+
+cflags = -Wno-unused-result -Wsign-compare -DNDEBUG -g -fwrapv -O2 -Wall -g -fstack-protector-strong -Wformat -Werror=format-security -g -fwrapv -O2 -g -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2 -fPIC -I/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/include -I/home/dev/ros2_ws/venv/lib/python3.10/site-packages/torch/include -I/home/dev/ros2_ws/venv/lib/python3.10/site-packages/torch/include/torch/csrc/api/include -I/usr/local/cuda-12.8/include -I/home/dev/ros2_ws/venv/include -I/usr/include/python3.10 -c
+post_cflags = -DTORCH_API_INCLUDE_EXTENSION_H '-DPYBIND11_COMPILER_TYPE="_gcc"' '-DPYBIND11_STDLIB="_libstdcpp"' '-DPYBIND11_BUILD_ABI="_cxxabi1018"' -DTORCH_EXTENSION_NAME=_ext -std=c++17
+cuda_cflags = -I/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/include -I/home/dev/ros2_ws/venv/lib/python3.10/site-packages/torch/include -I/home/dev/ros2_ws/venv/lib/python3.10/site-packages/torch/include/torch/csrc/api/include -I/usr/local/cuda-12.8/include -I/home/dev/ros2_ws/venv/include -I/usr/include/python3.10 -c
+cuda_post_cflags = -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -DTORCH_API_INCLUDE_EXTENSION_H '-DPYBIND11_COMPILER_TYPE="_gcc"' '-DPYBIND11_STDLIB="_libstdcpp"' '-DPYBIND11_BUILD_ABI="_cxxabi1018"' -DTORCH_EXTENSION_NAME=_ext -gencode=arch=compute_89,code=compute_89 -gencode=arch=compute_89,code=sm_89 -std=c++17
+cuda_dlink_post_cflags = 
+sycl_dlink_post_cflags = 
+ldflags = 
+
+rule compile
+  command = $cxx -MMD -MF $out.d $cflags -c $in -o $out $post_cflags
+  depfile = $out.d
+  deps = gcc
+
+rule cuda_compile
+  depfile = $out.d
+  deps = gcc
+  command = $nvcc --generate-dependencies-with-compile --dependency-output $out.d $cuda_cflags -c $in -o $out $cuda_post_cflags
+
+
+
+
+
+
+
+build /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/ball_query.o: compile /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/ball_query.cpp
+build /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/ball_query_gpu.o: cuda_compile /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/ball_query_gpu.cu
+build /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/bindings.o: compile /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/bindings.cpp
+build /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/group_points.o: compile /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/group_points.cpp
+build /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/group_points_gpu.o: cuda_compile /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/group_points_gpu.cu
+build /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/interpolate.o: compile /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/interpolate.cpp
+build /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/interpolate_gpu.o: cuda_compile /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/interpolate_gpu.cu
+build /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/sampling.o: compile /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/sampling.cpp
+build /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/sampling_gpu.o: cuda_compile /home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/sampling_gpu.cu
+
+
+
+
+
+
+
+

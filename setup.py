@@ -53,6 +53,9 @@ setup(
             'sam_6d_ros/instance_segmentation_model/configs/model/segmentor_model/fast_sam.yaml',
             'sam_6d_ros/instance_segmentation_model/configs/model/segmentor_model/sam.yaml',
         ]),
+        ('share/' + package_name + '/pose_estimation_model/config', [
+            'sam_6d_ros/pose_estimation_model/config/base.yaml',
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

@@ -92,7 +92,42 @@ class Detections:
             if isinstance(self.boxes, np.ndarray):
                 self.to_torch()
             self.boxes = self.boxes.long()
+    
+    def to_dict_list(self, scene_id=0, image_id=0, runtime=0.0, dataset_name="Custom"):
+        """Return list of detection dicts (COCO-like) with RLE segmentation and xywh bbox.
 
+        This matches the format previously produced via save_to_file + convert_npz_to_json
+        without writing to disk.
+        """
+        # Ensure boxes tensor is on CPU before numpy conversion
+        boxes_tensor = self.boxes
+        if isinstance(boxes_tensor, torch.Tensor):
+            boxes_cpu = boxes_tensor.detach().cpu()
+        else:
+            boxes_cpu = boxes_tensor
+        boxes = xyxy_to_xywh(boxes_cpu.numpy() if isinstance(boxes_cpu, torch.Tensor) else boxes_cpu)
+        if isinstance(boxes, torch.Tensor):  # safety, though xyxy_to_xywh returns numpy for 2D
+            boxes = boxes.detach().cpu().numpy()
+        results = []
+        for i in range(len(self)):
+            mask_tensor = self.masks[i]
+            if isinstance(mask_tensor, torch.Tensor):
+                mask_np = force_binary_mask(mask_tensor.detach().cpu().numpy())
+            else:
+                mask_np = force_binary_mask(mask_tensor)
+            rle = mask_to_rle(mask_np)
+            result = {
+                "scene_id": int(scene_id),
+                "image_id": int(image_id),
+                "category_id": int(self.object_ids[i].item() + 1) if dataset_name != "lmo" else int(lmo_object_ids[self.object_ids[i].item()]),
+                "bbox": boxes[i].tolist(),
+                "score": float(self.scores[i].item()),
+                "time": float(runtime),
+                "segmentation": rle,
+            }
+            results.append(result)
+        return results
+    
     def remove_very_small_detections(self, config):
         img_area = self.masks.shape[1] * self.masks.shape[2]
         box_areas = box_area(self.boxes) / img_area

@@ -1,0 +1,10 @@
+# ninja log v5
+1	14003	1760002618620615075	/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/ball_query_gpu.o	1fbf3cf21badfc50
+2	14033	1760002618656615072	/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/group_points_gpu.o	3ab58068f86c78a4
+2	14049	1760002618648615073	/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/interpolate_gpu.o	51f1e89cdece10c3
+3	14283	1760002618906615056	/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/sampling_gpu.o	db8f71f5f1ff4faf
+1	18454	1760002623090614781	/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/bindings.o	366b91f6290a0f2d
+3	24867	1760002629500614361	/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/sampling.o	a202d92ddd8bb375
+1	27312	1760002631949614200	/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/ball_query.o	8ea6f90e127b0e7e
+2	28908	1760002633516614097	/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/interpolate.o	865f67c85bce36d8
+2	28960	1760002633529614096	/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/build/temp.linux-x86_64-3.10/home/dev/SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2/_ext_src/src/group_points.o	84a6f0c7831645a7
