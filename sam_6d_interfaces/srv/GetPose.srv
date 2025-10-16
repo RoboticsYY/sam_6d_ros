@@ -1,0 +1,6 @@
+# command_id: 
+#   1: Get object pose in translation and rotation
+
+int8 command_id
+---
+geometry_msgs/Pose pose
