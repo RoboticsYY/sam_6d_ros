@@ -62,7 +62,7 @@ rgb_transform = transforms.Compose([transforms.ToTensor(),
                                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                     std=[0.229, 0.224, 0.225])])
 
-def visualize(rgb, detections, save_path="tmp.png"):
+def visualize_ism(rgb, detections, save_path="tmp.png"):
     img = rgb.copy()
     gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
     img = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
@@ -133,6 +133,20 @@ def visualize_all_masks(rgb, detections, save_dir="tmp_masks"):
         images.append(img_pil)
 
     return images
+
+def visualize_pem(rgb, pred_rot, pred_trans, model_points, K, save_path):
+    img = draw_detections(rgb, pred_rot, pred_trans, model_points, K, color=(255, 0, 0))
+    img = Image.fromarray(np.uint8(img))
+    img.save(save_path)
+    prediction = Image.open(save_path)
+    
+    # concat side by side in PIL
+    rgb = Image.fromarray(np.uint8(rgb))
+    img = np.array(img)
+    concat = Image.new('RGB', (img.shape[1] + prediction.size[0], img.shape[0]))
+    concat.paste(rgb, (0, 0))
+    concat.paste(prediction, (img.shape[1], 0))
+    return concat
 
 def _get_template(path, cfg, tem_index=1):
     rgb_path = os.path.join(path, 'rgb_'+str(tem_index)+'.png')
@@ -551,7 +565,7 @@ class PoseEstimation:
             save_dir = f"{self.output_dir}/sam6d_results"
             os.makedirs(save_dir, exist_ok=True)
             save_json_bop23(os.path.join(save_dir, "detection_ism.json"), self.detections)
-            vis_img = visualize(self.img_np, self.detections, os.path.join(save_dir, "vis_ism.png"))
+            vis_img = visualize_ism(self.img_np, self.detections, os.path.join(save_dir, "vis_ism.png"))
             visualize_all_masks(self.img_np, self.detections, save_dir=os.path.join(save_dir, "tmp_masks"))
             vis_img.save(os.path.join(save_dir, "vis_ism.png"))
 
@@ -580,7 +594,21 @@ class PoseEstimation:
         pred_trans = out['pred_t'].detach().cpu().numpy() * 1000
         print("=> Got object pose")
 
-        
+        if self.visualize:
+            for idx in range(ninstance):
+                save_path = os.path.join(f"{self.output_dir}/sam6d_results", f'vis_pem_{idx}.png')
+                K = input_data['K'][idx:idx+1].detach().cpu().numpy()  # shape (1, 3, 3)
+                vis_img = visualize_pem(
+                    img,
+                    pred_rot[idx:idx+1],
+                    pred_trans[idx:idx+1],
+                    model_points*1000,
+                    K,
+                    save_path
+                )
+                print(f"pred_rot[{idx}]: ", pred_rot[idx])
+                print(f"pred_trans[{idx}]: ", pred_trans[idx])
+                vis_img.save(save_path)
 
 def main(args=None):
     rclpy.init(args=args)
