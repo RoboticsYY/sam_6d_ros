@@ -6,7 +6,7 @@ import cv2
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sam_6d_ros.instance_segmentation_model.segment_anything.utils.amg import MaskData
+from segment_anything.utils.amg import MaskData
 import logging
 import os.path as osp
 from typing import Any, Dict, List, Optional, Tuple

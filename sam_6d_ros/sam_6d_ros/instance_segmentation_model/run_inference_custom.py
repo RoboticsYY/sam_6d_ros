@@ -33,6 +33,9 @@ from model.utils import Detections, convert_npz_to_json
 from model.loss import Similarity
 from utils.inout import load_json, save_json_bop23
 
+import time
+import logging
+
 inv_rgb_transform = T.Compose(
         [
             T.Normalize(
@@ -80,106 +83,20 @@ def visualize(rgb, detections, save_path="tmp.png"):
     concat.paste(prediction, (img.shape[1], 0))
     return concat
 
-def get_depth_from_point_cloud(cloud, K, im_shape=None):
-    """
-    Projects a point cloud to a depth map using camera intrinsics.
-    Args:
-        cloud: (H, W, 3) or (N, 3) numpy array of 3D points in camera coordinates.
-        K: (3, 3) camera intrinsic matrix.
-        im_shape: (H, W) tuple for output depth map shape. Required if cloud is (N, 3).
-    Returns:
-        depth: (H, W) numpy array, depth map (float32)
-    """
-    if cloud.ndim == 3:
-        # (H, W, 3) format
-        H, W, _ = cloud.shape
-        pts = cloud.reshape(-1, 3)
-        im_shape = (H, W)
-    elif cloud.ndim == 2:
-        # (N, 3) format
-        pts = cloud
-        if im_shape is None:
-            raise ValueError("im_shape must be provided when cloud is (N, 3)")
-        H, W = im_shape
-    else:
-        raise ValueError("cloud must be (H, W, 3) or (N, 3)")
-
-    fx, fy, cx, cy = K[0,0], K[1,1], K[0,2], K[1,2]
-    x = pts[:, 0]
-    y = pts[:, 1]
-    z = pts[:, 2]
-    # Avoid division by zero
-    z_safe = np.where(z == 0, 1e-6, z)
-    u = (x * fx) / z_safe + cx
-    v = (y * fy) / z_safe + cy
-    u = np.round(u).astype(np.int32)
-    v = np.round(v).astype(np.int32)
-
-    depth = np.zeros((H, W), dtype=np.float32)
-    # Only keep points that project inside the image
-    valid = (u >= 0) & (u < W) & (v >= 0) & (v < H)
-    u = u[valid]
-    v = v[valid]
-    z = z[valid]
-    # For each pixel, keep the closest point (smallest z)
-    for ui, vi, zi in zip(u, v, z):
-        if depth[vi, ui] == 0 or zi < depth[vi, ui]:
-            depth[vi, ui] = zi
-    return depth
-
-def visualize_all_masks(rgb, detections, save_dir="tmp_masks"):
-    import os
-    os.makedirs(save_dir, exist_ok=True)
-    img_base = rgb.copy()
-    colors = distinctipy.get_colors(len(detections))
-    alpha = 0.33
-    images = []
-
-    for mask_idx, det in enumerate(detections):
-        img = img_base.copy()
-        gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
-        img = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
-
-        mask = rle_to_mask(det["segmentation"])
-        edge = canny(mask)
-        edge = binary_dilation(edge, np.ones((2, 2)))
-        obj_id = det["category_id"]
-        temp_id = obj_id - 1
-
-        r = int(255*colors[temp_id][0])
-        g = int(255*colors[temp_id][1])
-        b = int(255*colors[temp_id][2])
-        img[mask, 0] = alpha*r + (1 - alpha)*img[mask, 0]
-        img[mask, 1] = alpha*g + (1 - alpha)*img[mask, 1]
-        img[mask, 2] = alpha*b + (1 - alpha)*img[mask, 2]
-        img[edge, :] = 255
-
-        img_pil = Image.fromarray(np.uint8(img))
-        save_path = os.path.join(save_dir, f"mask_{mask_idx}.png")
-        img_pil.save(save_path)
-        images.append(img_pil)
-
-    return images
-
 def batch_input_data(depth_path, cam_path, device):
     batch = {}
     cam_info = load_json(cam_path)
     depth = np.array(imageio.imread(depth_path)).astype(np.int32)
-    # depth = np.fromfile(depth_path, dtype=np.uint16).reshape(480, 640)
-    # point_cloud = trimesh.load(depth_path)
-    # whole_pts = np.array(point_cloud.vertices).astype(np.float32).reshape(480, 640, 3)
-    # depth = get_depth_from_point_cloud(whole_pts, np.array(cam_info['cam_K']).reshape((3, 3)), im_shape=(480, 640))
-    print("Depth shape:", depth.size)
     cam_K = np.array(cam_info['cam_K']).reshape((3, 3))
     depth_scale = np.array(cam_info['depth_scale'])
 
     batch["depth"] = torch.from_numpy(depth).unsqueeze(0).to(device)
-    print("Depth shape:", batch["depth"].shape)
     batch["cam_intrinsic"] = torch.from_numpy(cam_K).unsqueeze(0).to(device)
     batch['depth_scale'] = torch.from_numpy(depth_scale).unsqueeze(0).to(device)
     return batch
 
 def run_inference(segmentor_model, output_dir, cad_path, rgb_path, depth_path, cam_path, stability_score_thresh):
+    print(f"[OpenVINO] OV ISM pipeline inference start...")
     with initialize(version_base=None, config_path="configs"):
         cfg = compose(config_name='run_inference.yaml')
 
@@ -193,6 +110,7 @@ def run_inference(segmentor_model, output_dir, cad_path, rgb_path, depth_path, c
     else:
         raise ValueError("The segmentor_model {} is not supported now!".format(segmentor_model))
 
+    start_model_init = time.perf_counter()
     logging.info("Initializing model")
     model = instantiate(cfg.model)
     
@@ -208,7 +126,6 @@ def run_inference(segmentor_model, output_dir, cad_path, rgb_path, depth_path, c
         model.segmentor_model.model.setup_model(device=device, verbose=True)
     logging.info(f"Moving models to {device} done!")
         
-    
     logging.info("Initializing template")
     template_dir = os.path.join(output_dir, 'templates')
     num_templates = len(glob.glob(f"{template_dir}/*.npy"))
@@ -238,35 +155,105 @@ def run_inference(segmentor_model, output_dir, cad_path, rgb_path, depth_path, c
     masks_cropped = proposal_processor(images=masks, boxes=boxes).to(device)
 
     model.ref_data = {}
+    start_compute_features = time.perf_counter()
     model.ref_data["descriptors"] = model.descriptor_model.compute_features(
                     templates, token_name="x_norm_clstoken"
                 ).unsqueeze(0).data
+    end_compute_features = time.perf_counter()
+    print(f"    [Timing] compute_features time: {(end_compute_features - start_compute_features)*1000:.2f} ms")
+
+    start_compute_masked_patch_feature = time.perf_counter()
     model.ref_data["appe_descriptors"] = model.descriptor_model.compute_masked_patch_feature(
                     templates, masks_cropped[:, 0, :, :]
                 ).unsqueeze(0).data
-    
-    # run inference
-    rgb = Image.open(rgb_path).convert("RGB")
-    detections = model.segmentor_model.generate_masks(np.array(rgb))
-    detections = Detections(detections)
-    query_decriptors, query_appe_descriptors = model.descriptor_model.forward(np.array(rgb), detections)
+    end_compute_masked_patch_feature = time.perf_counter()
+    print(f"    [Timing] compute_masked_patch_feature time: {(end_compute_masked_patch_feature - start_compute_masked_patch_feature)*1000:.2f} ms")
+    logging.info(f"** compute_features input: {templates.size()}")
+    logging.info(f"** compute_features output: {model.ref_data['descriptors'].size()}")
+    logging.info(f"** compute_masked_patch_feature input: {templates.size()}, {masks_cropped[:, 0, :, :].size()}")
+    logging.info(f"** compute_masked_patch_feature output: {model.ref_data['appe_descriptors'].size()}")
 
-    # matching descriptors
+    # run inference
+    ### Export to onnx
+    export_model = model.descriptor_model.model.cpu()
+    dummy_input = torch.rand_like(templates).cpu()
+    dummy_flag = False
+    start_infer = time.perf_counter()
+    # torch.onnx.export(export_model, dummy_input, "descriptor_dinov2_model.onnx", )
+    # torch.onnx.export(
+    #     export_model,
+    #     (dummy_input),
+    #     "descriptor_dinov2_model_infer.onnx",
+    #     export_params=True,
+    #     opset_version=17,
+    #     do_constant_folding=False,  # Keep both branches
+    #     input_names=["images"],
+    #     dynamic_axes={"input": {0: "batch"}}
+    # )
+    rgb = Image.open(rgb_path).convert("RGB")
+    ### warm up
+    detections_w = model.segmentor_model.generate_masks(np.array(rgb))
+    logging.info(detections_w['masks'].size())
+    logging.info(detections_w['boxes'].size())
+
+    detections_w['masks'] = detections_w['masks'][0:2, :, :]
+    detections_w['boxes'] = detections_w['boxes'][0:2, :]
+
+    logging.info(detections_w['masks'].size())
+    logging.info(detections_w['boxes'].size())
+    
+    detections_w = Detections(detections_w)
+
+    logging.info(detections_w.masks.size())
+    logging.info(detections_w.boxes.size())
+
+    ov_infer_start = time.time()
+    start_gen_masks = time.perf_counter()
+    detections = model.segmentor_model.generate_masks(np.array(rgb))
+    end_gen_masks = time.perf_counter()
+    print(f"    [Timing] generate_masks time: {(end_gen_masks - start_gen_masks)*1000:.2f} ms")
+    # print(f"detections: {detections}")
+    logging.info(f"** generate_masks input: {np.array(rgb).shape}") 
+    logging.info(f"** generate_masks output dict: mask {detections['masks'].size()}, boxes {detections['boxes'].size()}")
+    
+    #print(rgb.size)
+    # # export model: model.segmentor_model.model.predictor.model
+    # # export input: images [n, 3, h, w] --> /home/intel/miniforge3/envs/sam6d/lib/python3.9/site-packages/ultralytics/yolo/engine/predictor.py line 124
+    # # export input shape [n, 3, h, w], n=1, np.array(rgb) [h, w, 3]: h=np.array(rgb).shape[0], w=np.array(rgb).shape[1]
+    # temp_rgb = np.array(rgb) # obtain h, w
+    # height, width = temp_rgb.shape[0], temp_rgb.shape[1]
+    # export_input = torch.rand(1, 3, height, width)
+    # export_model = model.segmentor_model.model.predictor.model.cpu()
+    # torch.onnx.export(export_model, export_input, "fastsam_yolo_v8_predictor.onnx")
+    detections = Detections(detections)
+    #print(np.array(rgb).shape)
+
+    start_forward = time.perf_counter()
+    query_decriptors, query_appe_descriptors = model.descriptor_model.forward(np.array(rgb), detections)
+    end_forward = time.perf_counter()
+    print(f"    [Timing] descriptor_model.forward time: {(end_forward - start_forward)*1000:.2f} ms")
+
+    start_sem = time.perf_counter()
     (
         idx_selected_proposals,
         pred_idx_objects,
         semantic_score,
         best_template,
     ) = model.compute_semantic_score(query_decriptors)
+    end_sem = time.perf_counter()
+    print(f"    [Timing] compute_semantic_score time: {(end_sem - start_sem)*1000:.2f} ms")
 
     # update detections
     detections.filter(idx_selected_proposals)
     query_appe_descriptors = query_appe_descriptors[idx_selected_proposals, :]
 
     # compute the appearance score
+    start_appe = time.perf_counter()
     appe_scores, ref_aux_descriptor= model.compute_appearance_score(best_template, pred_idx_objects, query_appe_descriptors)
-
+    end_appe = time.perf_counter()
+    print(f"    [Timing] compute_appearance_score time: {(end_appe - start_appe)*1000:.2f} ms")
     # compute the geometric score
+    
     batch = batch_input_data(depth_path, cam_path, device)
     template_poses = get_obj_poses_from_template_level(level=2, pose_distribution="all")
     template_poses[:, :3, 3] *= 0.4
@@ -277,14 +264,32 @@ def run_inference(segmentor_model, output_dir, cad_path, rgb_path, depth_path, c
     model_points = mesh.sample(2048).astype(np.float32) / 1000.0
     model.ref_data["pointcloud"] = torch.tensor(model_points).unsqueeze(0).data.to(device)
     
+    start_project = time.perf_counter()
     image_uv = model.project_template_to_image(best_template, pred_idx_objects, batch, detections.masks)
+    end_project = time.perf_counter()
+    print(f"    [Timing] compute_project_template_to_image time: {(end_project - start_project)*1000:.2f} ms")
 
+    start_geo = time.perf_counter()
     geometric_score, visible_ratio = model.compute_geometric_score(
         image_uv, detections, query_appe_descriptors, ref_aux_descriptor, visible_thred=model.visible_thred
         )
-
+    end_geo = time.perf_counter()
+    print(f"    [Timing] compute_geometric_score time: {(end_geo - start_geo)*1000:.2f} ms")
+    
+    total_stage_time = (
+        (end_gen_masks - start_gen_masks)
+        + (end_forward - start_forward)
+        + (end_sem - start_sem)
+        + (end_appe - start_appe)
+        + (end_geo - start_geo)
+    )
+    ov_infer_end = time.time()
+    print(f"[Timing] Sum of 5 core stages: {total_stage_time*1000:.2f} ms")
     # final score
+    start_final = time.perf_counter()
     final_score = (semantic_score + appe_scores + geometric_score*visible_ratio) / (1 + 1 + visible_ratio)
+    end_final = time.perf_counter()
+    print(f"    [Timing] compute final_score time: {(end_final - start_final)*1000:.2f} ms")
 
     detections.add_attribute("scores", final_score)
     detections.add_attribute("object_ids", torch.zeros_like(final_score))   
@@ -295,8 +300,9 @@ def run_inference(segmentor_model, output_dir, cad_path, rgb_path, depth_path, c
     detections = convert_npz_to_json(idx=0, list_npz_paths=[save_path+".npz"])
     save_json_bop23(save_path+".json", detections)
     vis_img = visualize(rgb, detections, f"{output_dir}/sam6d_results/vis_ism.png")
-    visualize_all_masks(rgb, detections, save_dir=f"{output_dir}/sam6d_results/tmp_masks")
     vis_img.save(f"{output_dir}/sam6d_results/vis_ism.png")
+    print(f"[OpenVINO] OpenVINO Instance_Segmentation_Model pipeline E2E Inference Time: {(ov_infer_end - ov_infer_start)*1000:.2f} ms, save_path : {output_dir}/sam6d_results/vis_ism.png")
+    
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

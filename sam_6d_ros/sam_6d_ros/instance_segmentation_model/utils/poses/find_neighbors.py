@@ -1,7 +1,7 @@
 import numpy as np
 # import open3d as o3d
 import os
-from sam_6d_ros.instance_segmentation_model.utils.poses.pose_utils import (
+from utils.poses.pose_utils import (
     get_obj_poses_from_template_level,
     get_root_project,
     NearestTemplateFinder,

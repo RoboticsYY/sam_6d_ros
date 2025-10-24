@@ -5,11 +5,37 @@ from torchvision.utils import make_grid, save_image
 import pytorch_lightning as pl
 import logging
 import numpy as np
-from sam_6d_ros.instance_segmentation_model.utils.bbox_utils import CropResizePad, CustomResizeLongestSide
+from ..utils.bbox_utils import CropResizePad, CustomResizeLongestSide
 from torchvision.utils import make_grid, save_image
-from sam_6d_ros.instance_segmentation_model.model.utils import BatchedData
+from .utils import BatchedData
 from copy import deepcopy
+import os
 import os.path as osp
+import openvino as ov
+
+
+def get_ov_model(model_path, device='CPU'):
+    core = ov.Core()
+    ov_model = core.read_model(model_path)
+    # ov_model.reshape({"x": ov.PartialShape([-1, 3, 224, 224])})
+    compiled_model = ov.compile_model(ov_model, device)
+    return compiled_model
+
+def ov_to_torch(x):
+    ### Convert x which is a ov output to torch
+    if isinstance(x, np.ndarray):
+        x = torch.from_numpy(x)
+        return x
+    elif isinstance(x, list):
+        out_list = []
+        for item in x:
+            if isinstance(item, np.ndarray):
+                out_list.append(torch.from_numy(item))
+            else:
+                out_list.append(item)
+        return out_list
+    else:
+        raise NotImplementedError
 
 descriptor_size = {
     "dinov2_vits14": 384,
@@ -86,9 +112,6 @@ def _make_dinov2_model(
 
     return model
 
-
-
-
 class CustomDINOv2(pl.LightningModule):
     def __init__(
         self,
@@ -104,10 +127,18 @@ class CustomDINOv2(pl.LightningModule):
         super().__init__()
         self.model_name = model_name
         self.model = _make_dinov2_model(arch_name=descriptor_map[model_name], pretrained=False)
-        self.model.load_state_dict(torch.load(osp.join(checkpoint_dir, f"{model_name}_pretrain.pth")))
+        # self.model.load_state_dict(torch.load(osp.join(checkpoint_dir, f"{model_name}_pretrain.pth")))
+        ## SUBSTITUE dino v2 model with openvino compiled dino v2 model
+        # self.ov_model = get_ov_model(model_path="/home/test/SAM-6D/SAM-6D/Instance_Segmentation_Model/descriptor_dinov2_model_infer.xml", device="GPU")
+        print(f"checkpoint_dir: {checkpoint_dir}")
+        current_dir = os.getcwd()
+        print(f"current_dir: {current_dir}")
+        ov_ism_path = os.path.normpath(os.path.join(current_dir, checkpoint_dir, "descriptor_dinov2_model_infer.xml"))
+        self.ov_model = get_ov_model(model_path=ov_ism_path, device="GPU")
+
         self.validpatch_thresh = validpatch_thresh
         self.token_name = token_name
-        self.chunk_size = chunk_size
+        self.chunk_size = chunk_size # chunk_size
         self.patch_size = patch_size
         self.proposal_size = image_size
         self.descriptor_width_size = descriptor_width_size
@@ -149,7 +180,11 @@ class CustomDINOv2(pl.LightningModule):
             if images.shape[0] > self.chunk_size:
                 features = self.forward_by_chunk(images)
             else:
-                features = self.model(images)
+                # features = self.model(images)
+                # print(features[0]["x_norm_clstoken"], features[-1])
+                # print("images.numpy()",images.numpy().shape)
+                features = self.ov_model(images.numpy())[-1]
+                features = ov_to_torch(features)
         else:  # get both features
             raise NotImplementedError
         return features
@@ -160,9 +195,19 @@ class CustomDINOv2(pl.LightningModule):
         del processed_rgbs  # free memory
         features = BatchedData(batch_size=self.chunk_size)
         for idx_batch in range(len(batch_rgbs)):
-            feats = self.compute_features(
-                batch_rgbs[idx_batch], token_name="x_norm_clstoken"
+            shape = batch_rgbs[idx_batch].shape
+            cur_batch_size = shape[0]
+            if cur_batch_size < self.chunk_size:
+                pad = torch.zeros(self.chunk_size-cur_batch_size, *shape[1:])
+                tmp_batch = torch.cat([batch_rgbs[idx_batch], pad], dim=0)
+                feats = self.compute_features(
+                tmp_batch, token_name="x_norm_clstoken"
             )
+            else:
+                feats = self.compute_features(
+                    batch_rgbs[idx_batch], token_name="x_norm_clstoken"
+                )
+            feats = feats[:cur_batch_size]
             features.cat(feats)
         return features.data
 
@@ -217,7 +262,10 @@ class CustomDINOv2(pl.LightningModule):
         if images.shape[0] > self.chunk_size:
             features = self.forward_by_chunk_v2(images, masks)
         else:
-            features = self.model(images, is_training=True)["x_norm_patchtokens"]
+            # features = self.model(images, is_training=True)[0]["x_norm_patchtokens"]
+            # print(features.shape)
+            features = self.ov_model(images.numpy())[2] # x_norm_patchtokens is the third output
+            features = ov_to_torch(features)
             features_mask = self.patch_kernel(masks).flatten(-2) > self.validpatch_thresh
             features_mask = features_mask.unsqueeze(-1).repeat(1, 1, features.shape[-1])
             features = F.normalize(features * features_mask, dim=-1)
@@ -230,6 +278,7 @@ class CustomDINOv2(pl.LightningModule):
         processed_rgbs = self.process_rgb_proposals(
             image_np, proposals.masks, proposals.boxes
         )
+        # print(image_np.shape, processed_rgbs.shape)
         processed_masks = self.process_masks_proposals(proposals.masks, proposals.boxes)
 
         batch_rgbs = BatchedData(batch_size=self.chunk_size, data=processed_rgbs)
@@ -239,18 +288,39 @@ class CustomDINOv2(pl.LightningModule):
         cls_features = BatchedData(batch_size=self.chunk_size)
         patch_features = BatchedData(batch_size=self.chunk_size)
         for idx_batch in range(len(batch_rgbs)):
-            cls_feats, patch_feats = self.compute_cls_and_patch_features(
-                batch_rgbs[idx_batch], batch_masks[idx_batch]
-            )
+            shape = batch_rgbs[idx_batch].shape
+            cur_batch_size = shape[0]
+            # print(cur_batch_size, self.chunk_size)
+            if cur_batch_size < self.chunk_size:
+                pad = torch.zeros(self.chunk_size-cur_batch_size, *shape[1:])
+                tmp_batch = torch.cat([batch_rgbs[idx_batch], pad], dim=0)
+                cls_feats, patch_feats = self.compute_cls_and_patch_features(
+                tmp_batch, batch_masks[idx_batch]
+                )
+            else:
+                cls_feats, patch_feats = self.compute_cls_and_patch_features(
+                    batch_rgbs[idx_batch], batch_masks[idx_batch]
+                )
+            cls_feats, patch_feats = cls_feats[:cur_batch_size], patch_feats[:cur_batch_size]
             cls_features.cat(cls_feats)
             patch_features.cat(patch_feats)
         
         return cls_features.data, patch_features.data
 
     def compute_cls_and_patch_features(self, images, masks):
-        features = self.model(images, is_training=True)
-        patch_features = features["x_norm_patchtokens"]
-        cls_features = features["x_norm_clstoken"]
+        # features = self.model(images, is_training=True)[0]
+        # for k, v in features.items():
+        #     print(k, v.shape)
+        # patch_features = features["x_norm_patchtokens"]
+        # cls_features = features["x_norm_clstoken"]
+        features = self.ov_model(images.numpy())
+        patch_features = ov_to_torch(features[2]) # x_norm_patchtokens is the third output
+        cls_features = ov_to_torch(features[0]) # x_norm_clstoken is the first output
+        if images.shape[0] != masks.shape[0]:
+            mask_shape = masks.shape
+            pad_mask = torch.zeros(images.shape[0]-masks.shape[0], *mask_shape[1:])
+            masks = torch.cat([masks, pad_mask], dim=0)
+
         features_mask = self.patch_kernel(masks).flatten(-2) > self.validpatch_thresh
         features_mask = features_mask.unsqueeze(-1).repeat(1, 1, patch_features.shape[-1])
         patch_features = F.normalize(patch_features * features_mask, dim=-1)

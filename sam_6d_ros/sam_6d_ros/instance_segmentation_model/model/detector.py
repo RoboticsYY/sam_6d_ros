@@ -8,18 +8,18 @@ import os
 import os.path as osp
 from torchvision.utils import make_grid, save_image
 import pytorch_lightning as pl
-from sam_6d_ros.instance_segmentation_model.utils.inout import save_json, load_json, save_json_bop23
-from sam_6d_ros.instance_segmentation_model.model.utils import BatchedData, Detections, convert_npz_to_json
+from ..utils.inout import save_json, load_json, save_json_bop23
+from .utils import BatchedData, Detections, convert_npz_to_json
 from hydra.utils import instantiate
 import time
 import glob
 from functools import partial
 import multiprocessing
 import trimesh
-from sam_6d_ros.instance_segmentation_model.model.loss import MaskedPatch_MatrixSimilarity
-from sam_6d_ros.instance_segmentation_model.utils.trimesh_utils import depth_image_to_pointcloud_translate_torch
-from sam_6d_ros.instance_segmentation_model.utils.poses.pose_utils import get_obj_poses_from_template_level
-from sam_6d_ros.instance_segmentation_model.utils.bbox_utils import xyxy_to_xywh, compute_iou
+from .loss import MaskedPatch_MatrixSimilarity
+from ..utils.trimesh_utils import depth_image_to_pointcloud_translate_torch
+from ..utils.poses.pose_utils import get_obj_poses_from_template_level
+from ..utils.bbox_utils import xyxy_to_xywh, compute_iou
 
 
 class Instance_Segmentation_Model(pl.LightningModule):

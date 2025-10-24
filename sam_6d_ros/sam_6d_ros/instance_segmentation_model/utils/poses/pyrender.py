@@ -7,8 +7,8 @@ import numpy as np
 import os.path as osp
 from tqdm import tqdm
 import argparse
-from sam_6d_ros.instance_segmentation_model.utils.trimesh_utils import as_mesh
-from sam_6d_ros.instance_segmentation_model.utils.trimesh_utils import get_obj_diameter
+from utils.trimesh_utils import as_mesh
+from utils.trimesh_utils import get_obj_diameter
 os.environ["DISPLAY"] = ":1"
 os.environ["PYOPENGL_PLATFORM"] = "egl"
 

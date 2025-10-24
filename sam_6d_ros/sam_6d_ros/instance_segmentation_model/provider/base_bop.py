@@ -9,10 +9,10 @@ from PIL import Image
 from torch.utils.data import Dataset
 import os.path as osp
 import pandas as pd
-from sam_6d_ros.instance_segmentation_model.utils.inout import load_json, save_json, casting_format_to_save_json
-from sam_6d_ros.instance_segmentation_model.utils.poses.pose_utils import load_index_level_in_level2
+from utils.inout import load_json, save_json, casting_format_to_save_json
+from utils.poses.pose_utils import load_index_level_in_level2
 import torch
-from sam_6d_ros.instance_segmentation_model.utils.bbox_utils import CropResizePad
+from utils.bbox_utils import CropResizePad
 import pytorch_lightning as pl
 
 pl.seed_everything(2023)

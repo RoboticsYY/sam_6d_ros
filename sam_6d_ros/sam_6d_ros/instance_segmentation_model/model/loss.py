@@ -1,8 +1,8 @@
 from torch import nn
 import torch
-from sam_6d_ros.instance_segmentation_model.utils.poses.pose_utils import load_rotation_transform, convert_openCV_to_openGL_torch
+from ..utils.poses.pose_utils import load_rotation_transform, convert_openCV_to_openGL_torch
 import torch.nn.functional as F
-from sam_6d_ros.instance_segmentation_model.model.utils import BatchedData
+from .utils import BatchedData
 
 
 class Similarity(nn.Module):

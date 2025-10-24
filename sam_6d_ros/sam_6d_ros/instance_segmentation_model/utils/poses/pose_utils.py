@@ -1,13 +1,13 @@
 import os
 import numpy as np
 import pathlib
-from sam_6d_ros.instance_segmentation_model.utils.inout import get_root_project
+from ..inout import get_root_project
 from scipy.spatial.transform import Rotation
 import torch
 from torch import nn
 import math
 from scipy.spatial.distance import cdist
-from sam_6d_ros.instance_segmentation_model.utils.poses.fps import FPS
+from .fps import FPS
 
 def opencv2opengl(cam_matrix_world):
     transform = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])

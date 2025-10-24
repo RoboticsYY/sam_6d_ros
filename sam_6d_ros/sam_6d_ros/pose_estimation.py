@@ -42,25 +42,25 @@ from sam_6d_ros.instance_segmentation_model.utils.inout import load_json, save_j
 from torch.serialization import safe_globals
 from ultralytics.nn.tasks import SegmentationModel
 
-import gorilla
-import random
-import importlib
-import json
+# import gorilla
+# import random
+# import importlib
+# import json
 
-import torchvision.transforms as transforms
+# import torchvision.transforms as transforms
 
-from sam_6d_ros.pose_estimation_model.utils.data_utils import (
-    load_im,
-    get_bbox,
-    get_point_cloud_from_depth,
-    get_resize_rgb_choose,
-)
-from sam_6d_ros.pose_estimation_model.utils.draw_utils import draw_detections, calculate_2d_projections, draw_3d_pts
-import pycocotools.mask as cocomask
+# from sam_6d_ros.pose_estimation_model.utils.data_utils import (
+#     load_im,
+#     get_bbox,
+#     get_point_cloud_from_depth,
+#     get_resize_rgb_choose,
+# )
+# from sam_6d_ros.pose_estimation_model.utils.draw_utils import draw_detections, calculate_2d_projections, draw_3d_pts
+# import pycocotools.mask as cocomask
 
-rgb_transform = transforms.Compose([transforms.ToTensor(),
-                                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                    std=[0.229, 0.224, 0.225])])
+# rgb_transform = transforms.Compose([transforms.ToTensor(),
+#                                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
+#                                                     std=[0.229, 0.224, 0.225])])
 
 def visualize_ism(rgb, detections, save_path="tmp.png"):
     img = rgb.copy()
@@ -320,25 +320,25 @@ class PoseEstimation:
         self.model_points = self.mesh.sample(2048).astype(np.float32) / 1000.0
 
         # Load pose estimation model configuration
-        config_path = os.path.join(get_package_share_directory('sam_6d_ros'), 'pose_estimation_model', 'config', 'base.yaml')
-        self.pem_cfg = gorilla.Config.fromfile(config_path)
-        self.pem_cfg.model_name = 'sam_6d_ros.pose_estimation_model.model.pose_estimation_model'
-        self.pem_cfg.det_score_thresh = 0.2
+        # config_path = os.path.join(get_package_share_directory('sam_6d_ros'), 'pose_estimation_model', 'config', 'base.yaml')
+        # self.pem_cfg = gorilla.Config.fromfile(config_path)
+        # self.pem_cfg.model_name = 'sam_6d_ros.pose_estimation_model.model.pose_estimation_model'
+        # self.pem_cfg.det_score_thresh = 0.2
         
-        print("=> creating model ...")
-        MODEL = importlib.import_module(self.pem_cfg.model_name)
-        self.pem_model = MODEL.Net(self.pem_cfg.model)
-        self.pem_model = self.pem_model.cuda()
-        self.pem_model.eval()
-        checkpoint = os.path.join(os.getcwd(), 'pose_estimation_model', 'checkpoints', 'sam-6d-pem-base.pth')
-        gorilla.solver.load_checkpoint(model=self.pem_model, filename=checkpoint)
-        print(f"=> loaded checkpoint '{checkpoint}'")
+        # print("=> creating model ...")
+        # MODEL = importlib.import_module(self.pem_cfg.model_name)
+        # self.pem_model = MODEL.Net(self.pem_cfg.model)
+        # self.pem_model = self.pem_model.cuda()
+        # self.pem_model.eval()
+        # checkpoint = os.path.join(os.getcwd(), 'pose_estimation_model', 'checkpoints', 'sam-6d-pem-base.pth')
+        # gorilla.solver.load_checkpoint(model=self.pem_model, filename=checkpoint)
+        # print(f"=> loaded checkpoint '{checkpoint}'")
 
-        print("=> extracting templates ...")
-        tem_path = os.path.join(self.output_dir, 'templates')
-        all_tem, all_tem_pts, all_tem_choose = get_templates(tem_path, self.pem_cfg.test_dataset)
-        with torch.no_grad():
-            self.all_tem_pts, self.all_tem_feat = self.pem_model.feature_extraction.get_obj_feats(all_tem, all_tem_pts, all_tem_choose)
+        # print("=> extracting templates ...")
+        # tem_path = os.path.join(self.output_dir, 'templates')
+        # all_tem, all_tem_pts, all_tem_choose = get_templates(tem_path, self.pem_cfg.test_dataset)
+        # with torch.no_grad():
+        #     self.all_tem_pts, self.all_tem_feat = self.pem_model.feature_extraction.get_obj_feats(all_tem, all_tem_pts, all_tem_choose)
         print("=> initialization done!")
 
     def color_callback(self, msg):
@@ -368,7 +368,7 @@ class PoseEstimation:
     def handle_get_pose(self, request, response):
         # Dummy implementation: always return identity pose
         self.run_segmentation_inference()
-        self.run_pose_estimation_inference()
+        # self.run_pose_estimation_inference()
         response.pose = Pose()
         return response
     

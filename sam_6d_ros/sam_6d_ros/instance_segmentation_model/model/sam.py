@@ -3,8 +3,8 @@ from segment_anything import (
     SamPredictor,
     SamAutomaticMaskGenerator,
 )
-from sam_6d_ros.instance_segmentation_model.segment_anything.modeling import Sam
-from sam_6d_ros.instance_segmentation_model.segment_anything.utils.amg import MaskData, generate_crop_boxes, rle_to_mask
+from segment_anything.modeling import Sam
+from segment_anything.utils.amg import MaskData, generate_crop_boxes, rle_to_mask
 import logging
 import numpy as np
 import torch
