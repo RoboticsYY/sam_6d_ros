@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>sam_6d_interfaces</name>
+  <name>pose_interfaces</name>
   <version>0.0.0</version>
   <description>ROS2 service interface for SAM-6D pose detection</description>
   <maintainer email="yu.yan@intel.com">dev</maintainer>

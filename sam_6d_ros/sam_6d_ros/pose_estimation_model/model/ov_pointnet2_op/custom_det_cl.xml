@@ -1,0 +1,11 @@
+<CustomLayer name="CustomDet" type="SimpleGPU" version="1">
+    <Kernel entry="ov_custom_det">
+        <Source filename="custom_det.cl"/>
+    </Kernel>
+    <Buffers>
+        <Tensor arg-index="0" type="input" port-index="0" />   <!-- input (B, n, n) --> 
+        <Tensor arg-index="1" type="output" port-index="0" format="BFYX"/> <!-- output (B,) --> 
+    </Buffers>
+    <CompilerOptions options="-cl-mad-enable -cl-fast-relaxed-math -cl-no-signed-zeros -cl-unsafe-math-optimizations"/>
+    <WorkSizes global="B,1,1"/>
+</CustomLayer> 

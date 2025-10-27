@@ -1,0 +1,13 @@
+<CustomLayer name="CustomDebugNode" type="SimpleGPU" version="1">
+    <Kernel entry="custom_debug_node">
+        <Source filename="custom_debug_node.cl"/>
+    </Kernel>
+    <Buffers>
+        <Tensor arg-index="0" type="input"  port-index="0"/>  <!-- input -->
+        <Tensor arg-index="1" type="output" port-index="0"/>  <!-- output -->
+    </Buffers>
+    <CompilerOptions options="-cl-mad-enable -cl-no-signed-zeros -cl-unsafe-math-optimizations"/>
+    <!-- Run one work-item per element to preserve linear order copy.
+         Only gid==0 prints, so printing in order -->
+    <WorkSizes global="B*F*Y*X,1,1" local="1,1,1"/>
+</CustomLayer>

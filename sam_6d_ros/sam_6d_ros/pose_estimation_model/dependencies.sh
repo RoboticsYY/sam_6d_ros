@@ -1,5 +1,5 @@
 
-
+sudo apt install libeigen3-dev
 
 pip install timm
 pip install gorilla-core==0.2.7.8
@@ -9,6 +9,6 @@ pip install opencv-python
 pip install gpustat==1.0.0
 pip install einops
 
-cd /model/pointnet2
+cd ./model/pointnet2
 python setup.py install
 cd ..

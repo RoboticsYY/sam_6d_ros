@@ -1,0 +1,14 @@
+<CustomLayer name="FurthestPointSampling" type="SimpleGPU" version="1">
+    <Kernel entry="ov_furthest_point_sampling">
+        <Source filename="furthest_point_sampling.cl"/>
+        <!-- <Source filename="furthest_point_sampling_optimized.cl"/> -->
+        <!-- <Define name="npoint" type="int"   param="npoint"/> -->
+    </Kernel>
+    <Buffers>
+        <Tensor arg-index="0" type="input" port-index="0" />   <!-- pts (B, N, 3) --> 
+        <Tensor arg-index="1" type="input" port-index="1" />   <!-- npoint (npoint) --> 
+        <Tensor arg-index="2" type="output" port-index="0" format="BFYX"/> <!-- output (B, npoint) --> 
+    </Buffers>
+    <CompilerOptions options="-cl-mad-enable -cl-fast-relaxed-math -cl-no-signed-zeros -cl-unsafe-math-optimizations"/>
+    <WorkSizes global="B,1,1"/>
+</CustomLayer> 

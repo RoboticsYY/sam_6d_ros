@@ -1,0 +1,15 @@
+<CustomLayer name="BallQuery" type="SimpleGPU" version="1">
+    <Kernel entry="ov_ball_query">
+        <Source filename="ball_query.cl"/>
+        <Define name="nsample" type="int"   param="nsample"/>
+        <Define name="radius"  type="float" param="radius"/>
+    </Kernel>
+    <Buffers><!-- use the same order as the kernel entry function, so in this case (input0,input1,output0,int,float,weights) -->
+        <Tensor arg-index="0" type="input" port-index="0" />   <!-- new_xyz (B, npoint, 3) --> 
+        <Tensor arg-index="1" type="input" port-index="1" />                <!-- xyz (B, n, 3) -->                 
+        <Tensor arg-index="2" type="output" port-index="0" format="BFYX"/>                <!-- idx (B, npoint, nsample) -->                 
+        
+    </Buffers>
+    <CompilerOptions options="-cl-mad-enable"/>
+    <WorkSizes global="B,F,1" local="1,64,1"/>
+</CustomLayer>

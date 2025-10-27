@@ -7,8 +7,10 @@ import numpy as np
 from typing import Union, Dict, Optional, Tuple
 from einops import rearrange
 
-from ..utils.model_utils import pairwise_distance
-from .pointnet2.pointnet2_utils import gather_operation
+from utils.model_utils import pairwise_distance, CustomDebugNode
+from model.pointnet2.pointnet2_utils import gather_operation
+
+DEBUG_FLAG = False # False / True
 
 NORM_LAYERS = {
     'BatchNorm1d': nn.BatchNorm1d,
@@ -326,6 +328,13 @@ class GeometricStructureEmbedding(nn.Module):
         anc_vectors = anc_vectors.unsqueeze(3).expand(batch_size, num_point, num_point, k, 3)  # (B, N, N, k, 3)
         sin_values = torch.linalg.norm(torch.cross(ref_vectors, anc_vectors, dim=-1), dim=-1)  # (B, N, N, k)
         cos_values = torch.sum(ref_vectors * anc_vectors, dim=-1)  # (B, N, N, k)
+        
+        # [Fix] OV model -nan result issue
+        # Add numerical stability processing, avoid NaN values 
+        eps = 1e-8
+        sin_values = torch.clamp(sin_values, min=eps)
+        cos_values = torch.clamp(cos_values, min=-1.0 + eps, max=1.0 - eps)
+        
         angles = torch.atan2(sin_values, cos_values)  # (B, N, N, k)
         a_indices = angles * self.factor_a
 
@@ -333,12 +342,17 @@ class GeometricStructureEmbedding(nn.Module):
 
     def forward(self, points):
         d_indices, a_indices = self.get_embedding_indices(points)
+        if DEBUG_FLAG:
+            a_indices = CustomDebugNode.apply(a_indices)
 
         d_embeddings = self.embedding(d_indices)
         d_embeddings = self.proj_d(d_embeddings)
 
         a_embeddings = self.embedding(a_indices)
         a_embeddings = self.proj_a(a_embeddings)
+        if DEBUG_FLAG:
+            a_embeddings = CustomDebugNode.apply(a_embeddings)
+
         if self.reduction_a == 'max':
             a_embeddings = a_embeddings.max(dim=3)[0]
         else:
@@ -642,16 +656,49 @@ class SparseToDenseTransformer(nn.Module):
     def forward(self, dense_feats0, embeddings0, fps_idx0, dense_feats1, embeddings1, fps_idx1, masks0=None, masks1=None):
         feats0 = self._sample_feats(dense_feats0, fps_idx0)
         feats1 = self._sample_feats(dense_feats1, fps_idx1)
+        
         feats0, feats1 = self.sparse_layer(feats0, embeddings0, feats1, embeddings1, masks0, masks1)
 
         dense_feats0 = self._get_dense_feats(dense_feats0, feats0)
         dense_feats1 = self._get_dense_feats(dense_feats1, feats1)
+
         return dense_feats0, dense_feats1
 
     def _sample_feats(self, dense_feats, fps_idx):
         if self.with_bg_token:
             bg_token = dense_feats[:, 0:1, :].contiguous()
-        feats = gather_operation(dense_feats.transpose(1,2).contiguous(), fps_idx)
+        dense_feats = dense_feats.transpose(1,2).contiguous()
+        feats = gather_operation(dense_feats, fps_idx)
+
+        if DEBUG_FLAG:
+            # gather_operation input logging
+            # features: (B, C, N)
+            features = dense_feats.detach().cpu().numpy()
+            b, c, n = features.shape
+            # idx: (B, npoint)
+            idx = fps_idx.detach().cpu().numpy()
+            npoints = idx.shape[1]
+
+            with open('output/torch_gather_operation_input.txt', 'a') as f:
+                f.write('----- gather_operation features input -----\n')
+                f.write(f'Shape: B={b}, C={c}, N={n}\n')
+
+                features_flat = features.flatten()
+                f.write('\n'.join(f'{x}' for x in features_flat) + '\n')
+                f.write('----- gather_operation idx input -----\n')
+                f.write(f'Shape: B={b}, npoints={npoints}\n')
+
+                idx_flat = idx.flatten()
+                f.write('\n'.join(f'{x}' for x in idx_flat) + '\n')
+
+            # gather_operation output logging
+            flat_feats = feats.cpu().detach().numpy().reshape(-1)
+            # print(f"[Torch] gather_operation(feats) output: {flat_feats}")
+            with open('output/torch_gather_operation.txt', 'a') as f:
+                f.write('--- gather_operation(feats) ---\n')
+                f.write(' '.join(f'{x:.6f}' for x in flat_feats) + '\n')
+            
+            
         feats = feats.transpose(1,2).contiguous()
         if self.with_bg_token:
             feats = torch.cat([bg_token, feats], dim=1)
@@ -671,6 +718,4 @@ class SparseToDenseTransformer(nn.Module):
                 feats
             )
         return dense_feats
-
-
-
+        

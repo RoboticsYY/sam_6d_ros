@@ -1,15 +1,13 @@
 import torch
 import torch.nn as nn
 
-from .transformer import GeometricTransformer
-from ..utils.model_utils import (
+from transformer import GeometricTransformer
+from model_utils import (
     compute_feature_similarity,
     aug_pose_noise,
     compute_coarse_Rt,
 )
-from ..utils.loss_utils import compute_correspondence_loss
-
-
+from loss_utils import compute_correspondence_loss
 
 class CoarsePointMatching(nn.Module):
     def __init__(self, cfg, return_feat=False):
@@ -17,25 +15,21 @@ class CoarsePointMatching(nn.Module):
         self.cfg = cfg
         self.return_feat = return_feat
         self.nblock = self.cfg.nblock
-
         self.in_proj = nn.Linear(cfg.input_dim, cfg.hidden_dim)
         self.out_proj = nn.Linear(cfg.hidden_dim, cfg.out_dim)
-
         self.bg_token = nn.Parameter(torch.randn(1, 1, cfg.hidden_dim) * .02)
-
-        self.transformers = []
-        for _ in range(self.nblock):
-            self.transformers.append(GeometricTransformer(
+        self.transformers = nn.ModuleList([
+            GeometricTransformer(
                 blocks=['self', 'cross'],
                 d_model = cfg.hidden_dim,
                 num_heads = 4,
                 dropout=None,
                 activation_fn='ReLU',
                 return_attention_scores=False,
-            ))
-        self.transformers = nn.ModuleList(self.transformers)
+            ) for _ in range(self.nblock)
+        ])
 
-    def forward(self, p1, f1, geo1, p2, f2, geo2, radius, end_points):
+    def forward(self, p1, f1, geo1, p2, f2, geo2, radius, model):
         B = f1.size(0)
 
         f1 = self.in_proj(f1)
@@ -55,28 +49,16 @@ class CoarsePointMatching(nn.Module):
                     self.cfg.temp,
                     self.cfg.normalize_feat
                 ))
-
-        if self.training:
-            gt_R = end_points['rotation_label']
-            gt_t = end_points['translation_label'] / (radius.reshape(-1, 1)+1e-6)
-            init_R, init_t = aug_pose_noise(gt_R, gt_t)
-
-            end_points = compute_correspondence_loss(
-                end_points, atten_list, p1, p2, gt_R, gt_t,
-                dis_thres=self.cfg.loss_dis_thres,
-                loss_str='coarse'
-            )
-        else:
-            init_R, init_t = compute_coarse_Rt(
-                atten_list[-1], p1, p2,
-                end_points['model'] / (radius.reshape(-1, 1, 1) + 1e-6),
-                self.cfg.nproposal1, self.cfg.nproposal2,
-            )
-        end_points['init_R'] = init_R
-        end_points['init_t'] = init_t
-
-        if self.return_feat:
-            return end_points, self.out_proj(f1), self.out_proj(f2)
-        else:
-            return end_points
+        # coarse_Rt_atten = atten_list[-1]
+        # coarse_Rt_model_pts = model / (radius.reshape(-1, 1, 1) + 1e-6)
+        # return coarse_Rt_atten, coarse_Rt_model_pts
+        
+        # 只返回粗匹配的初始R/t
+        # 训练时可返回更多
+        init_R, init_t = compute_coarse_Rt(
+            atten_list[-1], p1, p2,
+            model / (radius.reshape(-1, 1, 1) + 1e-6),
+            self.cfg.nproposal1, self.cfg.nproposal2,
+        )
+        return init_R, init_t
 

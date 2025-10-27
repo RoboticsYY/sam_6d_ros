@@ -6,3 +6,5 @@ pose_estimation:
         stability_score_thresh : 0.97
         depth_scale : 1.0
         visualize : True
+        model_dir : "/home/intel/ros2_ws/checkpoints"
+        ov_extension_lib_path : "/usr/local/lib/libopenvino_operation_extension.so"

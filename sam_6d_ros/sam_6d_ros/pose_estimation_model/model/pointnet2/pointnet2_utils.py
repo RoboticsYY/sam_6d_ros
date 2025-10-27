@@ -14,8 +14,8 @@ from __future__ import (
 import torch
 from torch.autograd import Function
 import torch.nn as nn
-from . import pytorch_utils as pt_utils
-import sys
+
+import numpy as np
 
 try:
     import builtins
@@ -36,19 +36,25 @@ if False:
     # Workaround for type hints without depending on the `typing` module
     from typing import *
 
+DEBUG_FLAG = False # True
 
-class RandomDropout(nn.Module):
-    def __init__(self, p=0.5, inplace=False):
-        super(RandomDropout, self).__init__()
-        self.p = p
-        self.inplace = inplace
+# class RandomDropout(nn.Module):
+#     def __init__(self, p=0.5, inplace=False):
+#         super(RandomDropout, self).__init__()
+#         self.p = p
+#         self.inplace = inplace
 
-    def forward(self, X):
-        theta = torch.Tensor(1).uniform_(0, self.p)[0]
-        return pt_utils.feature_dropout_no_scaling(X, theta, self.train, self.inplace)
+#     def forward(self, X):
+#         theta = torch.Tensor(1).uniform_(0, self.p)[0]
+#         return pt_utils.feature_dropout_no_scaling(X, theta, self.train, self.inplace)
 
 
 class FurthestPointSampling(Function):
+    @staticmethod
+    def symbolic(g: torch.Graph, xyz: torch.Tensor, npoint: torch.Tensor) -> torch.Tensor:
+    # def symbolic(g: torch.Graph, xyz: torch.Tensor, npoint: torch.Tensor) -> torch.Tensor:
+        return g.op("FurthestPointSampling", xyz, npoint)
+
     @staticmethod
     def forward(ctx, xyz, npoint):
         # type: (Any, torch.Tensor, int) -> torch.Tensor
@@ -68,7 +74,8 @@ class FurthestPointSampling(Function):
         torch.Tensor
             (B, npoint) tensor containing the set
         """
-        fps_inds = _ext.furthest_point_sampling(xyz, npoint)
+        npoint_i = npoint.shape[0]
+        fps_inds = _ext.furthest_point_sampling(xyz, npoint_i)
         ctx.mark_non_differentiable(fps_inds)
         return fps_inds
 
@@ -81,6 +88,10 @@ furthest_point_sample = FurthestPointSampling.apply
 
 
 class GatherOperation(Function):
+    @staticmethod
+    def symbolic(g: torch.Graph, features: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+        return g.op("GatherOperation", features, idx)
+
     @staticmethod
     def forward(ctx, features, idx):
         # type: (Any, torch.Tensor, torch.Tensor) -> torch.Tensor
@@ -119,6 +130,10 @@ gather_operation = GatherOperation.apply
 
 class ThreeNN(Function):
     @staticmethod
+    def symbolic(g: torch.Graph, unknown: torch.Tensor, known: torch.Tensor) -> torch.Tensor:
+        return  g.op("ThreeNN", unknown, known)
+
+    @staticmethod
     def forward(ctx, unknown, known):
         # type: (Any, torch.Tensor, torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
         r"""
@@ -150,6 +165,10 @@ three_nn = ThreeNN.apply
 
 
 class ThreeInterpolate(Function):
+    @staticmethod
+    def symbolic(g: torch.Graph, features: torch.Tensor, idx: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+        return g.op("ThreeInterpolate", features, idx, weight)
+
     @staticmethod
     def forward(ctx, features, idx, weight):
         # type(Any, torch.Tensor, torch.Tensor, torch.Tensor) -> Torch.Tensor
@@ -208,6 +227,10 @@ three_interpolate = ThreeInterpolate.apply
 
 class GroupingOperation(Function):
     @staticmethod
+    def symbolic(g: torch.Graph, features: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+        return g.op("GroupingOperation", features, idx)
+
+    @staticmethod
     def forward(ctx, features, idx):
         # type: (Any, torch.Tensor, torch.Tensor) -> torch.Tensor
         r"""
@@ -256,30 +279,16 @@ class GroupingOperation(Function):
 
 grouping_operation = GroupingOperation.apply
 
-
-class BallQuery(Function):
+class BallQuery(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, radius, nsample, xyz, new_xyz):
-        # type: (Any, float, int, torch.Tensor, torch.Tensor) -> torch.Tensor
-        r"""
+    def symbolic(g, new_xyz, xyz, radius, nsample):
+        return g.op("BallQuery", new_xyz, xyz, radius_f=radius, nsample_i=nsample)
 
-        Parameters
-        ----------
-        radius : float
-            radius of the balls
-        nsample : int
-            maximum number of features in the balls
-        xyz : torch.Tensor
-            (B, N, 3) xyz coordinates of the features
-        new_xyz : torch.Tensor
-            (B, npoint, 3) centers of the ball query
-
-        Returns
-        -------
-        torch.Tensor
-            (B, npoint, nsample) tensor with the indicies of the features that form the query balls
-        """
+    # type: (Any, float, int, torch.Tensor, torch.Tensor) -> torch.Tensor
+    @staticmethod
+    def forward(ctx, new_xyz, xyz, radius, nsample):
         inds = _ext.ball_query(new_xyz, xyz, radius, nsample)
+        # print("[BallQuery Debug] inds :", inds.shape, inds.type(), inds.dtype)
         ctx.mark_non_differentiable(inds)
         return inds
 
@@ -331,7 +340,23 @@ class QueryAndGroup(nn.Module):
         new_features : torch.Tensor
             (B, 3 + C, npoint, nsample) tensor
         """
-        idx = ball_query(self.radius, self.nsample, xyz, new_xyz)
+        idx = ball_query(new_xyz, xyz, self.radius, self.nsample)
+
+        #=================Test=====================
+        """
+        The inference output of two consecutive custom operations (ball_query & grouping_operation) 
+        results in incorrect calculations. 
+        However, saving the ball_query output to a .npy file and then reading it into the grouping_operation 
+        get the correct result. 
+        This is likely a bug in the OpenVINO GPU Custom Operations. T
+        he current implementation is a workaround.
+        """
+        # np.save("grouping_idx.npy",idx.numpy())
+        # real_idx_data_path = "grouping_idx.npy"
+        # real_idx = np.load(real_idx_data_path)
+        # idx = torch.from_numpy(real_idx)
+        # print(f"Loading Real data & {real_idx_data_path} ")
+        # #=================Test End=====================
 
         if self.sample_uniformly:
             unique_cnt = torch.zeros((idx.shape[0], idx.shape[1]))
@@ -347,12 +372,14 @@ class QueryAndGroup(nn.Module):
 
         xyz_trans = xyz.transpose(1, 2).contiguous()
         grouped_xyz = grouping_operation(xyz_trans, idx)  # (B, 3, npoint, nsample)
+
         grouped_xyz -= new_xyz.transpose(1, 2).unsqueeze(-1)
         if self.normalize_xyz:
             grouped_xyz /= self.radius
 
         if features is not None:
             grouped_features = grouping_operation(features, idx)
+
             if self.use_xyz:
                 new_features = torch.cat(
                     [grouped_xyz, grouped_features], dim=1
@@ -375,6 +402,78 @@ class QueryAndGroup(nn.Module):
         else:
             return tuple(ret)
 
+
+# class QueryAndGroupDebug(nn.Module):
+#     r"""
+#     Groups with a ball query of radius
+
+#     Parameters
+#     ---------
+#     radius : float32
+#         Radius of ball
+#     nsample : int32
+#         Maximum number of features to gather in the ball
+#     """
+
+#     def __init__(self, radius, nsample, use_xyz=True, ret_grouped_xyz=False, normalize_xyz=False, sample_uniformly=False, ret_unique_cnt=False):
+#         # type: (QueryAndGroup, float, int, bool) -> None
+#         super(QueryAndGroupDebug, self).__init__()
+#         self.radius, self.nsample, self.use_xyz = radius, nsample, use_xyz
+#         self.ret_grouped_xyz = ret_grouped_xyz
+#         self.normalize_xyz = normalize_xyz
+#         self.sample_uniformly = sample_uniformly
+#         self.ret_unique_cnt = ret_unique_cnt
+#         if self.ret_unique_cnt:
+#             assert(self.sample_uniformly)
+
+#     def forward(self, xyz, new_xyz, features=None):
+#         # type: (QueryAndGroup, torch.Tensor. torch.Tensor, torch.Tensor) -> Tuple[Torch.Tensor]
+#         idx = ball_query(new_xyz, xyz, self.radius, self.nsample)
+
+#         if self.sample_uniformly:
+#             print("[Torch Debug] self.sample_uniformly == True")
+#             unique_cnt = torch.zeros((idx.shape[0], idx.shape[1]))
+#             for i_batch in range(idx.shape[0]):
+#                 for i_region in range(idx.shape[1]):
+#                     unique_ind = torch.unique(idx[i_batch, i_region, :])
+#                     num_unique = unique_ind.shape[0]
+#                     unique_cnt[i_batch, i_region] = num_unique
+#                     sample_ind = torch.randint(0, num_unique, (self.nsample - num_unique,), dtype=torch.long)
+#                     all_ind = torch.cat((unique_ind, unique_ind[sample_ind]))
+#                     idx[i_batch, i_region, :] = all_ind
+
+
+#         xyz_trans = xyz.transpose(1, 2).contiguous()
+#         grouped_xyz = grouping_operation(xyz_trans, idx)  # (B, 3, npoint, nsample)
+#         grouped_xyz -= new_xyz.transpose(1, 2).unsqueeze(-1)
+#         if self.normalize_xyz:
+#             print("[Torch Debug] self.normalize_xyz == True")
+#             grouped_xyz /= self.radius
+
+#         if features is not None:
+#             print("[Torch Debug] features is not None == True")
+#             grouped_features = grouping_operation(features, idx)
+#             if self.use_xyz:
+#                 new_features = torch.cat(
+#                     [grouped_xyz, grouped_features], dim=1
+#                 )  # (B, C + 3, npoint, nsample)
+#             else:
+#                 new_features = grouped_features
+#         else:
+#             assert (
+#                 self.use_xyz
+#             ), "Cannot have not features and not use xyz as a feature!"
+#             new_features = grouped_xyz
+
+#         ret = [new_features]
+#         if self.ret_grouped_xyz:
+#             ret.append(grouped_xyz)
+#         if self.ret_unique_cnt:
+#             ret.append(unique_cnt)
+#         if len(ret) == 1:
+#             return ret[0]
+#         else:
+#             return tuple(ret)
 
 class GroupAll(nn.Module):
     r"""
@@ -424,3 +523,27 @@ class GroupAll(nn.Module):
             return new_features, grouped_xyz
         else:
             return new_features
+
+MAX_PRINT_ELEMS = 200
+class CustomDebugNode(torch.autograd.Function):
+    def __init__(self):
+        super(CustomDebugNode, self).__init__()
+
+    @staticmethod
+    def forward(ctx, input):
+        flat_input = input.cpu().detach().numpy().reshape(-1)
+        print(f"[Shape]: {input.shape} , type: {type(input)}")
+        with open('output/torch_debug_node.txt', 'a') as f:
+            f.write('--- torch custom_debug_node (input) ---\n')
+            f.write(f"[Shape]: {input.shape} , dtype: {type(input)}\n")
+            # Only keep the first MAX_PRINT_ELEMS data
+            max_elements = min(MAX_PRINT_ELEMS, len(flat_input))
+            f.write(' '.join(f'{x:.2f}' for x in flat_input[:max_elements]) + '\n')
+            if len(flat_input) > MAX_PRINT_ELEMS:
+                f.write(f'... (truncated, total {len(flat_input)} elements)\n')
+            f.write('\n')
+        return input
+    
+    @staticmethod
+    def symbolic(g, input):
+        return g.op("CustomDebugNode", input, outputs=1)
