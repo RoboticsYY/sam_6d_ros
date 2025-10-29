@@ -125,8 +125,7 @@ def visualize_ism(rgb, detections, save_path="tmp.png"):
     img[edge, :] = 255
     
     img = Image.fromarray(np.uint8(img))
-    img.save(save_path)
-    prediction = Image.open(save_path)
+    prediction = img.copy()
     
     # concat side by side in PIL
     img = np.array(img)
@@ -172,9 +171,8 @@ def visualize_all_masks(rgb, detections, save_dir="tmp_masks"):
 def visualize_pem(rgb, pred_rot, pred_trans, model_points, K, save_path):
     img = draw_detections(rgb, pred_rot, pred_trans, model_points, K, color=(255, 0, 0))
     img = Image.fromarray(np.uint8(img))
-    img.save(save_path)
-    prediction = Image.open(save_path)
-    
+    prediction = img.copy()
+
     # concat side by side in PIL
     rgb = Image.fromarray(np.uint8(rgb))
     img = np.array(img)
@@ -261,27 +259,7 @@ class PoseEstimation:
         self.depth_scale = None
         self.visualize = True
 
-        self.color_sub = node.create_subscription(
-            RosImage,
-            '/camera/color/image_raw',
-            self.color_callback,
-            10
-        )
-        self.depth_info_sub = node.create_subscription(
-            RosCameraInfo,
-            '/camera/aligned_depth_to_color/camera_info',
-            self.depth_info_callback,
-            10
-        )
-        self.aligned_depth_sub = node.create_subscription(
-            RosImage,
-            '/camera/aligned_depth_to_color/image_raw',
-            self.aligned_depth_callback,
-            10
-        )
-        self.srv = node.create_service(GetPose, 'get_pose', self.handle_get_pose)
-        
-
+        #=================Load parameters from ROS2 parameter server====================
         self.segmentor_model = node.get_parameter('segmentor_model').value
         self.node.get_logger().info(f'Segmenration model is: {self.segmentor_model}')
 
@@ -308,6 +286,40 @@ class PoseEstimation:
         self.ov_extension_lib_path = node.get_parameter('ov_extension_lib_path').value
         self.node.get_logger().info(f'OpenVINO extension library path is: {self.ov_extension_lib_path}')
 
+        self.rgb_topic = node.get_parameter('rgb_topic').value
+        self.node.get_logger().info(f'RGB topic is: {self.rgb_topic}')
+
+        self.depth_topic = node.get_parameter('depth_topic').value
+        self.node.get_logger().info(f'Depth topic is: {self.depth_topic}')
+
+        self.camera_info_topic = node.get_parameter('camera_info_topic').value
+        self.node.get_logger().info(f'Camera info topic is: {self.camera_info_topic}')
+
+        #============Create a ROS2 subscribers for RGB, depth images and camera info==========
+        self.color_sub = node.create_subscription(
+            RosImage,
+            self.rgb_topic,
+            self.color_callback,
+            10
+        )
+        self.depth_info_sub = node.create_subscription(
+            RosCameraInfo,
+            self.camera_info_topic,
+            self.depth_info_callback,
+            10
+        )
+        self.aligned_depth_sub = node.create_subscription(
+            RosImage,
+            self.depth_topic,
+            self.aligned_depth_callback,
+            10
+        )
+        self.srv = node.create_service(GetPose, 'get_pose', self.handle_get_pose)
+
+        #==========Create a ROS2 publisher for visualization images==========
+        self.image_pub = node.create_publisher(RosImage, 'pose_estimation/image', 10)
+
+        #=====================Load instance segmentation model configuration====================
         self.node.get_logger().info(f"Current working directory: {os.getcwd()}")
         with initialize(version_base=None, config_path='instance_segmentation_model/configs'):
             self.ism_cfg = compose(config_name='run_inference.yaml')
@@ -382,7 +394,7 @@ class PoseEstimation:
         self.mesh = trimesh.load_mesh(self.cad_path)
         self.model_points = self.mesh.sample(1024).astype(np.float32) / 1000.0
 
-        # Load pose estimation model configuration
+        #=====================Load pose estimation model configuration====================
         config_path = os.path.join(get_package_share_directory('sam_6d_ros'), 'pose_estimation_model', 'config', 'ov_gpu_base.yaml')
         # Load config directly from YAML file
         import yaml
@@ -711,8 +723,19 @@ class PoseEstimation:
             os.makedirs(save_dir, exist_ok=True)
             save_json_bop23(os.path.join(save_dir, "detection_ism.json"), self.detections)
             vis_img = visualize_ism(self.img_np, self.detections, os.path.join(save_dir, "vis_ism.png"))
-            visualize_all_masks(self.img_np, self.detections, save_dir=os.path.join(save_dir, "tmp_masks"))
-            vis_img.save(os.path.join(save_dir, "vis_ism.png"))
+            # visualize_all_masks(self.img_np, self.detections, save_dir=os.path.join(save_dir, "tmp_masks"))
+            # Publish vis_img as a ROS2 Image message
+            vis_img_np = np.array(vis_img)
+            ros_img_msg = RosImage()
+            ros_img_msg.header.stamp = self.node.get_clock().now().to_msg()
+            ros_img_msg.header.frame_id = "pose_estimation"
+            ros_img_msg.height = vis_img_np.shape[0]
+            ros_img_msg.width = vis_img_np.shape[1]
+            ros_img_msg.encoding = "rgb8"
+            ros_img_msg.is_bigendian = False
+            ros_img_msg.step = vis_img_np.shape[1] * 3
+            ros_img_msg.data = vis_img_np.tobytes()
+            self.image_pub.publish(ros_img_msg)
 
     def run_detection_inference(self):
         # Placeholder for detection inference logic
@@ -889,7 +912,20 @@ class PoseEstimation:
                 print(f"pred_rot[{idx}]: ", self.pred_rot[idx])
                 print(f"pred_trans[{idx}]: ", self.pred_trans[idx])
                 print(f"Pose score[{idx}]: ", self.pose_scores[idx])
-                vis_img.save(save_path)
+                # Publish vis_img as a ROS2 Image message
+                # Convert PIL Image to numpy array
+                vis_img_np = np.array(vis_img)
+                # Create ROS2 Image message
+                ros_img_msg = RosImage()
+                ros_img_msg.header.stamp = self.node.get_clock().now().to_msg()
+                ros_img_msg.header.frame_id = "pose_estimation"
+                ros_img_msg.height = vis_img_np.shape[0]
+                ros_img_msg.width = vis_img_np.shape[1]
+                ros_img_msg.encoding = "rgb8"
+                ros_img_msg.is_bigendian = False
+                ros_img_msg.step = vis_img_np.shape[1] * 3
+                ros_img_msg.data = vis_img_np.tobytes()
+                self.image_pub.publish(ros_img_msg)
 
 def main(args=None):
     rclpy.init(args=args)
