@@ -677,10 +677,16 @@ class PoseEstimation:
     def run_segmentation_inference(self):
         # Placeholder for segmentation inference logic
         print("=> running ISM model ...")
+        ism_time_start = time.time()
+        ism_generates_masks_time_start = time.time()
         self.detections = self.ism_model.segmentor_model.generate_masks(np.array(self.img_np))
+        ism_generates_masks_time = time.time() - ism_generates_masks_time_start
         self.detections = Detections(self.detections)
+        ism_descriptor_time_start = time.time()
         query_decriptors, query_appe_descriptors = self.ism_model.descriptor_model.forward(np.array(self.img_np), self.detections)
+        ism_descriptor_time = time.time() - ism_descriptor_time_start
 
+        ism_compute_scores_time_start = time.time()
         # matching descriptors
         (
             idx_selected_proposals,
@@ -710,10 +716,18 @@ class PoseEstimation:
         geometric_score, visible_ratio = self.ism_model.compute_geometric_score(
             image_uv, self.detections, query_appe_descriptors, ref_aux_descriptor, visible_thred=self.ism_model.visible_thred
             )
+        ism_compute_scores_time = time.time() - ism_compute_scores_time_start
         
         final_score = (semantic_score + appe_scores + geometric_score*visible_ratio) / (1 + 1 + visible_ratio)
         self.detections.add_attribute("scores", final_score)
         self.detections.add_attribute("object_ids", torch.zeros_like(final_score))
+        ism_time = time.time() - ism_time_start
+
+        if not self.first_run:
+            print(f"    [OpenVINO {self.pem_cfg.device}] ISM inference time: {ism_time*1000:.2f} ms")
+            print(f"        generates_masks time: {ism_generates_masks_time*1000:.2f} ms")
+            print(f"        descriptor time: {ism_descriptor_time*1000:.2f} ms")
+            print(f"        compute_scores time: {ism_compute_scores_time*1000:.2f} ms")
 
         # Convert to list-of-dicts (in-memory) before visualization / downstream use
         detection_list = self.detections.to_dict_list(scene_id=0, image_id=0, runtime=0.0, dataset_name="Custom")
@@ -890,7 +904,7 @@ class PoseEstimation:
             print(f"[OpenVINO {self.pem_cfg.device}] OpenVINO PEM model inference time: {pem_model_time*1000:.2f} ms")
             print(f"    ov_pem_sub1 inference time: {pem_sub1_time*1000:.2f} ms")
             print(f"    ov_pem_sub2 inference time: {pem_sub2_time*1000:.2f} ms")
-            print(f"    ov_pem_sub2 inference time: {pem_sub3_time*1000:.2f} ms")
+            print(f"    ov_pem_sub3 inference time: {pem_sub3_time*1000:.2f} ms")
             print(f"    ov_pem_sub4 inference time: {pem_sub4_time*1000:.2f} ms")
 
         self.pose_scores = pred_pose_score * input_data['score'].detach().cpu().numpy()
