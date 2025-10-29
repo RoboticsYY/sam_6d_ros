@@ -7,6 +7,10 @@ from pose_interfaces.srv import GetPose
 from geometry_msgs.msg import Pose
 from ament_index_python.packages import get_package_share_directory
 
+# YOLO related imports
+import torch
+from torchvision.ops import nms
+
 # ISM related imports
 import os
 import numpy as np
@@ -96,6 +100,59 @@ from sam_6d_ros.pose_estimation_model.utils.model_utils import compute_coarse_Rt
 rgb_transform = transforms.Compose([transforms.ToTensor(),
                                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                     std=[0.229, 0.224, 0.225])])
+
+def visualize_yolo_detections(img, yolo_results, class_names=None, score_thresh=0.2):
+    """
+    Visualize YOLO detections on an image.
+    Args:
+        img (np.ndarray): Input RGB image (H, W, 3), uint8.
+        yolo_results (dict or list): YOLO output, expects 'boxes', 'scores', 'labels'.
+        class_names (list, optional): List of class names for labels.
+        score_thresh (float): Minimum score to visualize.
+    Returns:
+        np.ndarray: Image with detections drawn.
+    """
+    img_vis = img.copy()
+    # Support both dict and list output
+    if isinstance(yolo_results, dict):
+        boxes = yolo_results.get('boxes', [])
+        scores = yolo_results.get('scores', [])
+        labels = yolo_results.get('labels', [])
+    elif isinstance(yolo_results, list):
+        # List of dicts
+        boxes = [d['box'] for d in yolo_results]
+        scores = [d['score'] for d in yolo_results]
+        labels = [d['label'] for d in yolo_results]
+    else:
+        # Return side-by-side with original if no detections
+        orig_img_pil = Image.fromarray(img)
+        img_vis_pil = Image.fromarray(img)
+        concat_img = Image.new('RGB', (orig_img_pil.width + img_vis_pil.width, orig_img_pil.height))
+        concat_img.paste(orig_img_pil, (0, 0))
+        concat_img.paste(img_vis_pil, (orig_img_pil.width, 0))
+        return np.array(concat_img)
+
+    for box, score, label in zip(boxes, scores, labels):
+        if score < score_thresh:
+            continue
+        # box: [x_center, y_center, w, h]
+        x_center, y_center, w, h = map(int, box)
+        x1 = int(x_center - w/2)
+        y1 = int(y_center - h/2)
+        x2 = int(x_center + w/2)
+        y2 = int(y_center + h/2)
+        color = (0, 255, 0)
+        cv2.rectangle(img_vis, (x1, y1), (x2, y2), color, 2)
+        label_text = f"box: {score:.2f}"
+        cv2.putText(img_vis, label_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+    # Concatenate side by side with original image
+    orig_img_pil = Image.fromarray(img)
+    vis_img_pil = Image.fromarray(img_vis)
+    concat_img = Image.new('RGB', (orig_img_pil.width + vis_img_pil.width, orig_img_pil.height))
+    concat_img.paste(orig_img_pil, (0, 0))
+    concat_img.paste(vis_img_pil, (orig_img_pil.width, 0))
+    return np.array(concat_img)
 
 def visualize_ism(rgb, detections, save_path="tmp.png"):
     img = rgb.copy()
@@ -442,6 +499,22 @@ class PoseEstimation:
         self.all_tem_pts = ov_fe_results_list[0]  # tem_pts_out
         self.all_tem_feat = ov_fe_results_list[1]  # tem_feat
         self.first_run = True
+
+        #==========Initialize and load OpenVINO YOLO model from model_dir/det/==========
+        self.yolo_model = None
+        self.yolo_compiled_model = None
+        yolo_model_path = os.path.join(self.model_dir, "det", "yolo.xml")
+        yolo_weights_path = os.path.join(self.model_dir, "det", "yolo.bin")
+        if os.path.exists(yolo_model_path) and os.path.exists(yolo_weights_path):
+            try:
+                self.yolo_model = self.core.read_model(yolo_model_path, yolo_weights_path)
+                self.yolo_compiled_model = self.core.compile_model(self.yolo_model, self.pem_cfg.device)
+                print(f"=> YOLO model loaded from {yolo_model_path} and compiled for device {self.pem_cfg.device}")
+            except Exception as e:
+                self.node.get_logger().warn(f"Failed to load YOLO model: {e}")
+        else:
+            self.node.get_logger().warn(f"YOLO model files not found in {os.path.join(self.model_dir, 'det')}")
+        
         print("=> initialization done!")
 
     def color_callback(self, msg):
@@ -470,6 +543,7 @@ class PoseEstimation:
 
     def handle_get_pose(self, request, response):
         self.node.get_logger().info(f"Handling get_pose request")
+        self.run_detection_inference()
         self.run_segmentation_inference()
         self.run_pose_estimation_inference()
 
@@ -679,7 +753,13 @@ class PoseEstimation:
         print("=> running ISM model ...")
         ism_time_start = time.time()
         ism_generates_masks_time_start = time.time()
+        # Use top-1 bbox from detection for mask generation
+        # if hasattr(self, 'detections_nms') and self.detections_nms and 'box' in self.detections_nms[0]:
+        #     bbox = self.detections_nms[0]['box']
+        #     self.detections = self.ism_model.segmentor_model.generate_masks_from_bbox(np.array(self.img_np), bbox)
+        # else:
         self.detections = self.ism_model.segmentor_model.generate_masks(np.array(self.img_np))
+        print(f"Size of self.detections: {len(self.detections)}")
         ism_generates_masks_time = time.time() - ism_generates_masks_time_start
         self.detections = Detections(self.detections)
         ism_descriptor_time_start = time.time()
@@ -753,7 +833,83 @@ class PoseEstimation:
 
     def run_detection_inference(self):
         # Placeholder for detection inference logic
-        pass
+        print("=> running detection inference ...")
+        if self.yolo_compiled_model is None:
+            print("YOLO model is not loaded.")
+            return
+        if self.img_np is None:
+            print("No RGB image data available for YOLO inference.")
+            return
+
+        # Prepare input for YOLO model (assuming NCHW, float32, normalized)
+        img = self.img_np
+        # Use original image size for YOLO input
+        input_shape = self.yolo_compiled_model.input(0).shape
+        h, w = input_shape[2], input_shape[3]
+        x_scale = img.shape[1] / w
+        y_scale = img.shape[0] / h
+        print(f"Resizing image to YOLO input size: ({img.shape}, {w}, {h})")
+        img_resized = cv2.resize(img, (w, h))
+        img_rgb = img_resized.astype(np.float32) / 255.0
+        img_rgb = np.transpose(img_rgb, (2, 0, 1))[np.newaxis, ...]  # (1, 3, H, W)
+
+        # Run inference
+        results = self.yolo_compiled_model({self.yolo_compiled_model.input(0): img_rgb})
+        print("YOLO inference results:", results)
+        # Adapt to YOLO output format: {output: array([[[x1, y1, x2, y2, conf, ...], ...]], dtype=float32)}
+        yolo_output = results
+        output_arr = yolo_output[next(iter(yolo_output))]  # shape: (1, 5, 8400)
+        # Transpose to (8400, 5) for easier iteration
+        arr = output_arr.squeeze().T  # shape: (8400, 5)
+        detections = []
+        for det in arr:
+            x1, y1, x2, y2, conf = det[:5]
+            x1 *= x_scale
+            x2 *= x_scale
+            y1 *= y_scale
+            y2 *= y_scale
+            if conf < 0.2:
+                continue
+            label = 0
+            detections.append([x1, y1, x2, y2, conf, label])
+            print(f"Detection: x1={x1}, y1={y1}, x2={x2}, y2={y2}, conf={conf}")
+
+        # Apply NMS using torchvision.ops.nms
+        boxes = torch.tensor([d[:4] for d in detections], dtype=torch.float32)
+        scores = torch.tensor([d[4] for d in detections], dtype=torch.float32)
+        labels = [d[5] for d in detections]
+        # torchvision expects boxes as [x1, y1, x2, y2]
+        keep_indices = nms(boxes, scores, iou_threshold=0.2).tolist()
+        self.detections_nms = [
+            {'box': [int(boxes[i][0]), int(boxes[i][1]), int(boxes[i][2]), int(boxes[i][3])],
+                'score': float(scores[i]), 'label': labels[i]}
+            for i in keep_indices
+        ]
+        # Filter to keep only the bbox with highest confidence
+        if self.detections_nms:
+            self.detections_nms = [max(self.detections_nms, key=lambda d: d['score'])]
+        print(f"Detections after NMS (top-1): {self.detections_nms}")
+
+        if self.visualize:
+            vis_img_np = visualize_yolo_detections(self.img_np, self.detections_nms)
+            # Save vis_img to output_dir
+            # save_dir = self.output_dir
+            # os.makedirs(save_dir, exist_ok=True)
+            # save_path = os.path.join(save_dir, "vis_yolo.png")
+            # from PIL import Image
+            # Image.fromarray(vis_img_np).save(save_path)
+
+            # Publish vis_img as a ROS2 Image message
+            ros_img_msg = RosImage()
+            ros_img_msg.header.stamp = self.node.get_clock().now().to_msg()
+            ros_img_msg.header.frame_id = "pose_estimation"
+            ros_img_msg.height = vis_img_np.shape[0]
+            ros_img_msg.width = vis_img_np.shape[1]
+            ros_img_msg.encoding = "rgb8"
+            ros_img_msg.is_bigendian = False
+            ros_img_msg.step = vis_img_np.shape[1] * 3
+            ros_img_msg.data = vis_img_np.tobytes()
+            self.image_pub.publish(ros_img_msg)
 
     def run_pose_estimation_inference(self):
         # Placeholder for pose estimation logic

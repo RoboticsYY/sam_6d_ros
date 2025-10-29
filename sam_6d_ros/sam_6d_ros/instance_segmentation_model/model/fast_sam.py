@@ -72,6 +72,7 @@ class CustomYOLO(YOLO):
 
 
 class FastSAM(object):
+
     def __init__(
         self,
         checkpoint_path: Union[str, Path],
@@ -124,5 +125,60 @@ class FastSAM(object):
             "boxes": boxes.to(self.current_device),
         }
         if self.segmentor_width_size is not None:
+            mask_data = self.postprocess_resize(mask_data, orig_size)
+        return mask_data
+    
+    @torch.no_grad()
+    def generate_masks_from_bbox(self, image, bbox) -> Dict[str, Any]:
+        """
+        Generate masks only within the given bounding box region.
+        Args:
+            image (np.ndarray): Input image (H, W, C)
+            bbox (tuple or list): (x1, y1, x2, y2) coordinates
+        Returns:
+            Dict[str, Any]: Mask data for the region
+        """
+        x_center, y_center, w, h = map(int, bbox)
+        img_h, img_w = image.shape[:2]
+        x1 = int(x_center - w // 2)
+        y1 = int(y_center - h // 2)
+        x2 = int(x_center + w // 2)
+        y2 = int(y_center + h // 2)
+        print(f"Generating masks for bbox: {bbox} -> crop: ({x1}, {y1}), ({x2}, {y2})")
+        crop_img = image[y1:y2, x1:x2]
+        # Ensure crop is valid and has 3 channels
+        if crop_img.shape[0] == 0 or crop_img.shape[1] == 0:
+            raise ValueError(f"Cropped image has zero height or width: bbox={bbox}, crop_img.shape={crop_img.shape}")
+        if crop_img.ndim == 2:
+            crop_img = cv2.cvtColor(crop_img, cv2.COLOR_GRAY2RGB)
+        elif crop_img.shape[-1] != 3:
+            crop_img = crop_img[..., :3]
+        # Resize crop to model input size
+        expected_h, expected_w = 480, 640  # adjust to your model's input size if needed
+        crop_img = cv2.resize(crop_img, (expected_w, expected_h), interpolation=cv2.INTER_LINEAR)
+        # Run model on cropped image
+        detections = self.model(crop_img)
+
+        masks = detections[0].masks.data  # shape: (N, H_model, W_model)
+        boxes = detections[0].boxes.data[:, :4]  # two lasts: confidence and class
+
+        # Rescale mask back to crop size
+        crop_h = y2 - y1
+        crop_w = x2 - x1
+        if masks.ndim == 3:
+            # masks: (N, H_model, W_model)
+            masks_rescaled = F.interpolate(masks.unsqueeze(1).float(), size=(crop_h, crop_w), mode="bilinear", align_corners=False)[:, 0, :, :]
+        else:
+            masks_rescaled = masks
+
+        # Adjust boxes to original image coordinates
+        boxes = boxes + torch.tensor([x1, y1, x1, y1], dtype=boxes.dtype, device=boxes.device)
+
+        mask_data = {
+            "masks": masks_rescaled.to(self.current_device),
+            "boxes": boxes.to(self.current_device),
+        }
+        if self.segmentor_width_size is not None:
+            orig_size = image.shape[:2]
             mask_data = self.postprocess_resize(mask_data, orig_size)
         return mask_data
