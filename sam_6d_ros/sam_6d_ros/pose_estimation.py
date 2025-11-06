@@ -227,7 +227,7 @@ def visualize_all_masks(rgb, detections, save_dir="tmp_masks"):
 
     return images
 
-def visualize_pem(rgb, pred_rot, pred_trans, model_points, K, save_path):
+def visualize_pem(rgb, pred_rot, pred_trans, model_points, K):
     img = draw_detections(rgb, pred_rot, pred_trans, model_points, K, color=(255, 0, 0))
     img = Image.fromarray(np.uint8(img))
     prediction = img.copy()
@@ -492,7 +492,7 @@ class PoseEstimation:
         self.pem_cfg.det_score_thresh = 0.2
         self.pem_cfg.device = 'GPU'
         self.pem_cfg.model = 'ov_pose_estimation_model'
-        print(f"[OpenVINO] Using device: {self.pem_cfg.device}")
+        print(f"[OpenVINO] PEM Using device: {self.pem_cfg.device}")
 
         print("=> creating model ...")
         self.core = Core()
@@ -544,8 +544,8 @@ class PoseEstimation:
         if os.path.exists(sam_model_encoder_path) and os.path.exists(sam_weights_encoder_path):
             try:
                 self.sam_ov_encoder_model = self.core.read_model(sam_model_encoder_path, sam_weights_encoder_path)
-                self.sam_ov_encoder_compiled_model = self.core.compile_model(self.sam_ov_encoder_model, self.pem_cfg.device)
-                print(f"=> SAM encoder model loaded from {sam_model_encoder_path} and compiled for device {self.pem_cfg.device}")
+                self.sam_ov_encoder_compiled_model = self.core.compile_model(self.sam_ov_encoder_model, 'CPU')
+                print(f"=> SAM encoder model loaded from {sam_model_encoder_path} and compiled for device CPU")
             except Exception as e:
                 self.node.get_logger().warn(f"Failed to load SAM model: {e}")
         else:
@@ -559,8 +559,8 @@ class PoseEstimation:
         if os.path.exists(sam_model_predictor_path) and os.path.exists(sam_weights_predictor_path):
             try:
                 self.sam_ov_predictor_model = self.core.read_model(sam_model_predictor_path, sam_weights_predictor_path)
-                self.sam_ov_predictor_compiled_model = self.core.compile_model(self.sam_ov_predictor_model, self.pem_cfg.device)
-                print(f"=> SAM predictor model loaded from {sam_model_predictor_path} and compiled for device {self.pem_cfg.device}")
+                self.sam_ov_predictor_compiled_model = self.core.compile_model(self.sam_ov_predictor_model, 'CPU')
+                print(f"=> SAM predictor model loaded from {sam_model_predictor_path} and compiled for device CPU")
             except Exception as e:
                 self.node.get_logger().warn(f"Failed to load SAM model: {e}")
         else:
@@ -899,7 +899,7 @@ class PoseEstimation:
 
         # Use top-1 bbox from YOLO detection
         bbox = self.detections_nms[0]['box']  # [x1, y1, x2, y2]
-        print(f"Using bbox for SAM prompt: {bbox}")
+        # print(f"Using bbox for SAM prompt: {bbox}")
         # Prepare prompt for SAM (normalized bbox coordinates)
         x_center, y_center, bbox_width, bbox_height = bbox
         x1, y1 = x_center - bbox_width / 2, y_center - bbox_height / 2
@@ -910,11 +910,11 @@ class PoseEstimation:
             x2,
             y2
         ], dtype=np.float32)
-        print(f"bbox_prompt: {bbox_prompt}")
+        # print(f"bbox_prompt: {bbox_prompt}")
 
         # Prepare image for SAM encoder (float32, RGB, NCHW)
-        sam_input_shape = self.sam_ov_encoder_compiled_model.input(0).shape
-        print(f"SAM encoder input shape: {sam_input_shape}")
+        # sam_input_shape = self.sam_ov_encoder_compiled_model.input(0).shape
+        # print(f"SAM encoder input shape: {sam_input_shape}")
         resizer = ResizeLongestSide(1024)
         preprocessed_image = preprocess_image(self.img_np, resizer=resizer)
 
@@ -946,7 +946,7 @@ class PoseEstimation:
         masks = postprocess_masks(masks, self.img_np.shape[:-1], resizer=resizer)
         masks = masks > 0.0
         sam_end_time = time.time()
-        print(f"SAM generated mask shape: {masks.shape}")
+        # print(f"SAM generated mask shape: {masks.shape}")
         print(f"SAM inference time: {(sam_end_time - sam_start_time)*1000:.2f} ms")
         # Ensure masks is 2D (height, width)
         if masks.ndim == 4:
@@ -983,6 +983,7 @@ class PoseEstimation:
     def run_detection_inference(self):
         # Placeholder for detection inference logic
         print("=> running detection inference ...")
+        yolo_start_time = time.time()
         if self.yolo_compiled_model is None:
             print("YOLO model is not loaded.")
             return
@@ -997,14 +998,16 @@ class PoseEstimation:
         h, w = input_shape[2], input_shape[3]
         x_scale = img.shape[1] / w
         y_scale = img.shape[0] / h
-        print(f"Resizing image to YOLO input size: ({img.shape}, {w}, {h})")
+        # print(f"Resizing image to YOLO input size: ({img.shape}, {w}, {h})")
         img_resized = cv2.resize(img, (w, h))
         img_rgb = img_resized.astype(np.float32) / 255.0
         img_rgb = np.transpose(img_rgb, (2, 0, 1))[np.newaxis, ...]  # (1, 3, H, W)
 
         # Run inference
         results = self.yolo_compiled_model({self.yolo_compiled_model.input(0): img_rgb})
-        print("YOLO inference results:", results)
+        yolo_end_time = time.time()
+        print(f"YOLO inference time: {(yolo_end_time - yolo_start_time)*1000:.2f} ms")
+        # print("YOLO inference results:", results)
         # Adapt to YOLO output format: {output: array([[[x1, y1, x2, y2, conf, ...], ...]], dtype=float32)}
         yolo_output = results
         output_arr = yolo_output[next(iter(yolo_output))]  # shape: (1, 5, 8400)
@@ -1021,7 +1024,7 @@ class PoseEstimation:
                 continue
             label = 0
             detections.append([x1, y1, x2, y2, conf, label])
-            print(f"Detection: x1={x1}, y1={y1}, x2={x2}, y2={y2}, conf={conf}")
+            # print(f"Detection: x1={x1}, y1={y1}, x2={x2}, y2={y2}, conf={conf}")
 
         # Apply NMS using torchvision.ops.nms
         boxes = torch.tensor([d[:4] for d in detections], dtype=torch.float32)
@@ -1041,13 +1044,6 @@ class PoseEstimation:
 
         if self.visualize:
             vis_img_np = visualize_yolo_detections(self.img_np, self.detections_nms)
-            # Save vis_img to output_dir
-            # save_dir = self.output_dir
-            # os.makedirs(save_dir, exist_ok=True)
-            # save_path = os.path.join(save_dir, "vis_yolo.png")
-            # from PIL import Image
-            # Image.fromarray(vis_img_np).save(save_path)
-
             # Publish vis_img as a ROS2 Image message
             ros_img_msg = RosImage()
             ros_img_msg.header.stamp = self.node.get_clock().now().to_msg()
@@ -1218,15 +1214,13 @@ class PoseEstimation:
 
         if self.visualize:
             for idx in range(ninstance):
-                save_path = os.path.join(f"{self.output_dir}/sam6d_results", f'vis_pem_{idx}.png')
                 K = input_data['K'][idx:idx+1].detach().cpu().numpy()  # shape (1, 3, 3)
                 vis_img = visualize_pem(
                     img,
                     self.pred_rot[idx:idx+1],
                     self.pred_trans[idx:idx+1],
                     model_points*1000,
-                    K,
-                    save_path
+                    K
                 )
                 print(f"pred_rot[{idx}]: ", self.pred_rot[idx])
                 print(f"pred_trans[{idx}]: ", self.pred_trans[idx])
