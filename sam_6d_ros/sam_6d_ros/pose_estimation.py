@@ -536,35 +536,35 @@ class PoseEstimation:
             self.node.get_logger().warn(f"YOLO model files not found in {os.path.join(self.model_dir, 'det')}")
         
 
-        #==========Initialize and load OpenVINO MobileSAM from model_dir/========
-        self.mobilesam_ov_encoder_model = None
-        self.mobilesam_ov_encoder_compiled_model = None
-        mobilesam_model_encoder_path = os.path.join(self.model_dir, "sam_image_encoder.xml")
-        mobilesam_weights_encoder_path = os.path.join(self.model_dir, "sam_image_encoder.bin")
-        if os.path.exists(mobilesam_model_encoder_path) and os.path.exists(mobilesam_weights_encoder_path):
+        #==========Initialize and load OpenVINO SAM from model_dir/========
+        self.sam_ov_encoder_model = None
+        self.sam_ov_encoder_compiled_model = None
+        sam_model_encoder_path = os.path.join(self.model_dir, "sam_image_encoder.xml")
+        sam_weights_encoder_path = os.path.join(self.model_dir, "sam_image_encoder.bin")
+        if os.path.exists(sam_model_encoder_path) and os.path.exists(sam_weights_encoder_path):
             try:
-                self.mobilesam_ov_encoder_model = self.core.read_model(mobilesam_model_encoder_path, mobilesam_weights_encoder_path)
-                self.mobilesam_ov_encoder_compiled_model = self.core.compile_model(self.mobilesam_ov_encoder_model, self.pem_cfg.device)
-                print(f"=> MobileSAM encoder model loaded from {mobilesam_model_encoder_path} and compiled for device {self.pem_cfg.device}")
+                self.sam_ov_encoder_model = self.core.read_model(sam_model_encoder_path, sam_weights_encoder_path)
+                self.sam_ov_encoder_compiled_model = self.core.compile_model(self.sam_ov_encoder_model, self.pem_cfg.device)
+                print(f"=> SAM encoder model loaded from {sam_model_encoder_path} and compiled for device {self.pem_cfg.device}")
             except Exception as e:
-                self.node.get_logger().warn(f"Failed to load MobileSAM model: {e}")
+                self.node.get_logger().warn(f"Failed to load SAM model: {e}")
         else:
-            self.node.get_logger().warn(f"MobileSAM model files not found in {os.path.join(self.model_dir, 'mobilesam')}")
+            self.node.get_logger().warn(f"SAM model files not found in {os.path.join(self.model_dir, 'sam')}")
 
 
-        self.mobilesam_ov_predictor_model = None
-        self.mobilesam_ov_predictor_compiled_model = None
-        mobilesam_model_predictor_path = os.path.join(self.model_dir, "sam_mask_predictor.xml")
-        mobilesam_weights_predictor_path = os.path.join(self.model_dir, "sam_mask_predictor.bin")
-        if os.path.exists(mobilesam_model_predictor_path) and os.path.exists(mobilesam_weights_predictor_path):
+        self.sam_ov_predictor_model = None
+        self.sam_ov_predictor_compiled_model = None
+        sam_model_predictor_path = os.path.join(self.model_dir, "sam_mask_predictor.xml")
+        sam_weights_predictor_path = os.path.join(self.model_dir, "sam_mask_predictor.bin")
+        if os.path.exists(sam_model_predictor_path) and os.path.exists(sam_weights_predictor_path):
             try:
-                self.mobilesam_ov_predictor_model = self.core.read_model(mobilesam_model_predictor_path, mobilesam_weights_predictor_path)
-                self.mobilesam_ov_predictor_compiled_model = self.core.compile_model(self.mobilesam_ov_predictor_model, self.pem_cfg.device)
-                print(f"=> MobileSAM predictor model loaded from {mobilesam_model_predictor_path} and compiled for device {self.pem_cfg.device}")
+                self.sam_ov_predictor_model = self.core.read_model(sam_model_predictor_path, sam_weights_predictor_path)
+                self.sam_ov_predictor_compiled_model = self.core.compile_model(self.sam_ov_predictor_model, self.pem_cfg.device)
+                print(f"=> SAM predictor model loaded from {sam_model_predictor_path} and compiled for device {self.pem_cfg.device}")
             except Exception as e:
-                self.node.get_logger().warn(f"Failed to load MobileSAM model: {e}")
+                self.node.get_logger().warn(f"Failed to load SAM model: {e}")
         else:
-            self.node.get_logger().warn(f"MobileSAM model files not found in {os.path.join(self.model_dir, 'mobilesam')}")
+            self.node.get_logger().warn(f"SAM model files not found in {os.path.join(self.model_dir, 'sam')}")
 
         print("=> initialization done!")
 
@@ -594,10 +594,9 @@ class PoseEstimation:
 
     def handle_get_pose(self, request, response):
         self.node.get_logger().info(f"Handling get_pose request")
-        time.sleep(3)
         self.run_detection_inference()
         self.run_prompt_segmentation_inference()
-        self.run_instance_segmentation_inference()
+        # self.run_instance_segmentation_inference()
         self.run_pose_estimation_inference()
 
         # Set response.pose from prediction
@@ -887,20 +886,21 @@ class PoseEstimation:
     def run_prompt_segmentation_inference(self):
 
         print("=> running prompt-based segmentation inference ...")
-        if self.mobilesam_ov_encoder_compiled_model is None or self.mobilesam_ov_predictor_compiled_model is None:
-            print("MobileSAM models are not loaded.")
+        sam_start_time = time.time()
+        if self.sam_ov_encoder_compiled_model is None or self.sam_ov_predictor_compiled_model is None:
+            print("SAM models are not loaded.")
             return
         if self.img_np is None:
-            print("No RGB image data available for MobileSAM inference.")
+            print("No RGB image data available for SAM inference.")
             return
         if not hasattr(self, 'detections_nms') or not self.detections_nms:
-            print("No YOLO detections available for MobileSAM prompt segmentation.")
+            print("No YOLO detections available for SAM prompt segmentation.")
             return
 
         # Use top-1 bbox from YOLO detection
         bbox = self.detections_nms[0]['box']  # [x1, y1, x2, y2]
-        print(f"Using bbox for MobileSAM prompt: {bbox}")
-        # Prepare prompt for MobileSAM (normalized bbox coordinates)
+        print(f"Using bbox for SAM prompt: {bbox}")
+        # Prepare prompt for SAM (normalized bbox coordinates)
         x_center, y_center, bbox_width, bbox_height = bbox
         x1, y1 = x_center - bbox_width / 2, y_center - bbox_height / 2
         x2, y2 = x_center + bbox_width / 2, y_center + bbox_height / 2
@@ -912,50 +912,56 @@ class PoseEstimation:
         ], dtype=np.float32)
         print(f"bbox_prompt: {bbox_prompt}")
 
-        # Prepare image for MobileSAM encoder (float32, RGB, NCHW)
-        mobilesam_input_shape = self.mobilesam_ov_encoder_compiled_model.input(0).shape
-        print(f"MobileSAM encoder input shape: {mobilesam_input_shape}")
-        ms_h, ms_w = mobilesam_input_shape[2], mobilesam_input_shape[3]
+        # Prepare image for SAM encoder (float32, RGB, NCHW)
+        sam_input_shape = self.sam_ov_encoder_compiled_model.input(0).shape
+        print(f"SAM encoder input shape: {sam_input_shape}")
         resizer = ResizeLongestSide(1024)
         preprocessed_image = preprocess_image(self.img_np, resizer=resizer)
 
-        # Run MobileSAM encoder
-        encoding_results = self.mobilesam_ov_encoder_compiled_model(preprocessed_image)
-        image_embeddings = encoding_results[self.mobilesam_ov_encoder_compiled_model.output(0)]
+        # Run SAM encoder
+        encoding_results = self.sam_ov_encoder_compiled_model(preprocessed_image)
+        image_embeddings = encoding_results[self.sam_ov_encoder_compiled_model.output(0)]
 
-        # Prepare prompt for predictor (MobileSAM expects [1,5,2] for input 1)
-        input_point = np.array([[x_center, y_center]], dtype=np.float32)
-        input_label = np.array([1], dtype=np.float32)
+        # Prepare prompt for predictor (SAM expects [1,5,2] for input 1)
+        input_box = np.array([[x1, y1, x2, y2]])
 
-        # Concatenate prompts and pad to shape [1,5,2] for MobileSAM
-        # MobileSAM expects [1,5,2] for point_coords and [1,5] for point_labels
-        coord = np.zeros((1, 5, 2), dtype=np.float32)
-        label = np.zeros((1, 5), dtype=np.float32)
-        # Fill in the first point (center)
-        coord[0, 0, :] = input_point[0]
-        label[0, 0] = input_label[0]
-        # Apply coordinate resizing only to the nonzero part
-        coord_resized = resizer.apply_coords(coord[0, :1, :], self.img_np.shape[:2]).astype(np.float32)
-        coord[0, 0, :] = coord_resized[0]
+        # Concatenate prompts and pad to shape [1,5,2] for SAM
+        box_coords = input_box.reshape(2, 2)
+        box_labels = np.array([2, 3])
 
-        # Run MobileSAM mask predictor
+        coord = np.concatenate([box_coords, np.array([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]])], axis=0)[None, :, :]
+        label = np.concatenate([box_labels, np.array([-1, -1, -1])], axis=0)[None, :].astype(np.float32)
+
+        coord = resizer.apply_coords(coord, self.img_np.shape[:2]).astype(np.float32)
+
+        # Run SAM mask predictor
         inputs = {
             "image_embeddings": image_embeddings,
             "point_coords": coord,
             "point_labels": label,
         }
-        predictor_output = self.mobilesam_ov_predictor_compiled_model(inputs)
+        predictor_output = self.sam_ov_predictor_compiled_model(inputs)
 
-        masks = predictor_output[self.mobilesam_ov_predictor_compiled_model.output(0)]
+        masks = predictor_output[self.sam_ov_predictor_compiled_model.output(0)]
         masks = postprocess_masks(masks, self.img_np.shape[:-1], resizer=resizer)
         masks = masks > 0.0
-        print(f"MobileSAM generated mask shape: {masks.shape}")
+        sam_end_time = time.time()
+        print(f"SAM generated mask shape: {masks.shape}")
+        print(f"SAM inference time: {(sam_end_time - sam_start_time)*1000:.2f} ms")
         # Ensure masks is 2D (height, width)
         if masks.ndim == 4:
             masks = masks[0, 0]
         elif masks.ndim == 3:
             masks = masks[0]
         # Now masks should be (height, width)
+
+        # Save mask as self.detections for PEM model
+        # Wrap in a list of dicts to match expected format
+        self.detections = [{
+            'segmentation': masks.astype(np.uint8),
+            'score': 1.0,  # or use a real score if available
+            'category_id': 1  # or set appropriately
+        }]
 
         overlay = self.img_np.copy()
         alpha = 0.5  # Set transparency level (0.0 = fully transparent, 1.0 = fully opaque)
