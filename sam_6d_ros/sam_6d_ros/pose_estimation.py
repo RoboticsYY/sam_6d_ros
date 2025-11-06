@@ -339,6 +339,10 @@ class PoseEstimation:
         self.visualize = bool(visualize_param)
         self.node.get_logger().info(f'Visualize is: {self.visualize}')
 
+        visualize_param = node.get_parameter('use_detection').value
+        self.use_detection = bool(visualize_param)
+        self.node.get_logger().info(f'Use detection is: {self.use_detection}')
+
         self.model_dir = node.get_parameter('model_dir').value
         self.node.get_logger().info(f'Model directory is: {self.model_dir}')
 
@@ -521,50 +525,51 @@ class PoseEstimation:
         self.first_run = True
 
         #==========Initialize and load OpenVINO YOLO model from model_dir/det/==========
-        self.yolo_model = None
-        self.yolo_compiled_model = None
-        yolo_model_path = os.path.join(self.model_dir, "det", "yolo.xml")
-        yolo_weights_path = os.path.join(self.model_dir, "det", "yolo.bin")
-        if os.path.exists(yolo_model_path) and os.path.exists(yolo_weights_path):
-            try:
-                self.yolo_model = self.core.read_model(yolo_model_path, yolo_weights_path)
-                self.yolo_compiled_model = self.core.compile_model(self.yolo_model, self.pem_cfg.device)
-                print(f"=> YOLO model loaded from {yolo_model_path} and compiled for device {self.pem_cfg.device}")
-            except Exception as e:
-                self.node.get_logger().warn(f"Failed to load YOLO model: {e}")
-        else:
-            self.node.get_logger().warn(f"YOLO model files not found in {os.path.join(self.model_dir, 'det')}")
-        
+        if self.use_detection:
+            self.yolo_model = None
+            self.yolo_compiled_model = None
+            yolo_model_path = os.path.join(self.model_dir, "det", "yolo.xml")
+            yolo_weights_path = os.path.join(self.model_dir, "det", "yolo.bin")
+            if os.path.exists(yolo_model_path) and os.path.exists(yolo_weights_path):
+                try:
+                    self.yolo_model = self.core.read_model(yolo_model_path, yolo_weights_path)
+                    self.yolo_compiled_model = self.core.compile_model(self.yolo_model, self.pem_cfg.device)
+                    print(f"=> YOLO model loaded from {yolo_model_path} and compiled for device {self.pem_cfg.device}")
+                except Exception as e:
+                    self.node.get_logger().warn(f"Failed to load YOLO model: {e}")
+            else:
+                self.node.get_logger().warn(f"YOLO model files not found in {os.path.join(self.model_dir, 'det')}")
 
         #==========Initialize and load OpenVINO SAM from model_dir/========
-        self.sam_ov_encoder_model = None
-        self.sam_ov_encoder_compiled_model = None
-        sam_model_encoder_path = os.path.join(self.model_dir, "sam_image_encoder.xml")
-        sam_weights_encoder_path = os.path.join(self.model_dir, "sam_image_encoder.bin")
-        if os.path.exists(sam_model_encoder_path) and os.path.exists(sam_weights_encoder_path):
-            try:
-                self.sam_ov_encoder_model = self.core.read_model(sam_model_encoder_path, sam_weights_encoder_path)
-                self.sam_ov_encoder_compiled_model = self.core.compile_model(self.sam_ov_encoder_model, 'CPU')
-                print(f"=> SAM encoder model loaded from {sam_model_encoder_path} and compiled for device CPU")
-            except Exception as e:
-                self.node.get_logger().warn(f"Failed to load SAM model: {e}")
-        else:
-            self.node.get_logger().warn(f"SAM model files not found in {os.path.join(self.model_dir, 'sam')}")
+        if self.use_detection:
+            self.sam_ov_encoder_model = None
+            self.sam_ov_encoder_compiled_model = None
+            sam_model_encoder_path = os.path.join(self.model_dir, "sam_image_encoder.xml")
+            sam_weights_encoder_path = os.path.join(self.model_dir, "sam_image_encoder.bin")
+            if os.path.exists(sam_model_encoder_path) and os.path.exists(sam_weights_encoder_path):
+                try:
+                    self.sam_ov_encoder_model = self.core.read_model(sam_model_encoder_path, sam_weights_encoder_path)
+                    self.sam_ov_encoder_compiled_model = self.core.compile_model(self.sam_ov_encoder_model, 'CPU')
+                    print(f"=> SAM encoder model loaded from {sam_model_encoder_path} and compiled for device CPU")
+                except Exception as e:
+                    self.node.get_logger().warn(f"Failed to load SAM model: {e}")
+            else:
+                self.node.get_logger().warn(f"SAM model files not found in {os.path.join(self.model_dir, 'sam')}")
 
 
-        self.sam_ov_predictor_model = None
-        self.sam_ov_predictor_compiled_model = None
-        sam_model_predictor_path = os.path.join(self.model_dir, "sam_mask_predictor.xml")
-        sam_weights_predictor_path = os.path.join(self.model_dir, "sam_mask_predictor.bin")
-        if os.path.exists(sam_model_predictor_path) and os.path.exists(sam_weights_predictor_path):
-            try:
-                self.sam_ov_predictor_model = self.core.read_model(sam_model_predictor_path, sam_weights_predictor_path)
-                self.sam_ov_predictor_compiled_model = self.core.compile_model(self.sam_ov_predictor_model, 'CPU')
-                print(f"=> SAM predictor model loaded from {sam_model_predictor_path} and compiled for device CPU")
-            except Exception as e:
-                self.node.get_logger().warn(f"Failed to load SAM model: {e}")
-        else:
-            self.node.get_logger().warn(f"SAM model files not found in {os.path.join(self.model_dir, 'sam')}")
+            self.sam_ov_predictor_model = None
+            self.sam_ov_predictor_compiled_model = None
+            sam_model_predictor_path = os.path.join(self.model_dir, "sam_mask_predictor.xml")
+            sam_weights_predictor_path = os.path.join(self.model_dir, "sam_mask_predictor.bin")
+            if os.path.exists(sam_model_predictor_path) and os.path.exists(sam_weights_predictor_path):
+                try:
+                    self.sam_ov_predictor_model = self.core.read_model(sam_model_predictor_path, sam_weights_predictor_path)
+                    self.sam_ov_predictor_compiled_model = self.core.compile_model(self.sam_ov_predictor_model, 'CPU')
+                    print(f"=> SAM predictor model loaded from {sam_model_predictor_path} and compiled for device CPU")
+                except Exception as e:
+                    self.node.get_logger().warn(f"Failed to load SAM model: {e}")
+            else:
+                self.node.get_logger().warn(f"SAM model files not found in {os.path.join(self.model_dir, 'sam')}")
 
         print("=> initialization done!")
 
@@ -594,9 +599,11 @@ class PoseEstimation:
 
     def handle_get_pose(self, request, response):
         self.node.get_logger().info(f"Handling get_pose request")
-        self.run_detection_inference()
-        self.run_prompt_segmentation_inference()
-        # self.run_instance_segmentation_inference()
+        if self.use_detection:
+            self.run_detection_inference()
+            self.run_prompt_segmentation_inference()
+        else:
+            self.run_instance_segmentation_inference()
         self.run_pose_estimation_inference()
 
         # Set response.pose from prediction
@@ -757,7 +764,7 @@ class PoseEstimation:
             all_dets.append(inst)
 
         ret_dict = {}
-        print("all_cloud shape: ", len(all_cloud))
+        print("    all_cloud shape: ", len(all_cloud))
         ret_dict['pts'] = torch.stack(all_cloud).to(self.device)
         ret_dict['rgb'] = torch.stack(all_rgb).to(self.device)
         ret_dict['rgb_choose'] = torch.stack(all_rgb_choose).to(self.device)
@@ -811,7 +818,7 @@ class PoseEstimation:
         #     self.detections = self.ism_model.segmentor_model.generate_masks_from_bbox(np.array(self.img_np), bbox)
         # else:
         self.detections = self.ism_model.segmentor_model.generate_masks(np.array(self.img_np))
-        print(f"Size of self.detections: {len(self.detections)}")
+        print(f"    Size of self.detections: {len(self.detections)}")
         ism_generates_masks_time = time.time() - ism_generates_masks_time_start
         self.detections = Detections(self.detections)
         ism_descriptor_time_start = time.time()
@@ -947,7 +954,7 @@ class PoseEstimation:
         masks = masks > 0.0
         sam_end_time = time.time()
         # print(f"SAM generated mask shape: {masks.shape}")
-        print(f"SAM inference time: {(sam_end_time - sam_start_time)*1000:.2f} ms")
+        print(f"    SAM inference time: {(sam_end_time - sam_start_time)*1000:.2f} ms")
         # Ensure masks is 2D (height, width)
         if masks.ndim == 4:
             masks = masks[0, 0]
@@ -1006,7 +1013,7 @@ class PoseEstimation:
         # Run inference
         results = self.yolo_compiled_model({self.yolo_compiled_model.input(0): img_rgb})
         yolo_end_time = time.time()
-        print(f"YOLO inference time: {(yolo_end_time - yolo_start_time)*1000:.2f} ms")
+        print(f"    YOLO inference time: {(yolo_end_time - yolo_start_time)*1000:.2f} ms")
         # print("YOLO inference results:", results)
         # Adapt to YOLO output format: {output: array([[[x1, y1, x2, y2, conf, ...], ...]], dtype=float32)}
         yolo_output = results
@@ -1040,7 +1047,7 @@ class PoseEstimation:
         # Filter to keep only the bbox with highest confidence
         if self.detections_nms:
             self.detections_nms = [max(self.detections_nms, key=lambda d: d['score'])]
-        print(f"Detections after NMS (top-1): {self.detections_nms}")
+        # print(f"Detections after NMS (top-1): {self.detections_nms}")
 
         if self.visualize:
             vis_img_np = visualize_yolo_detections(self.img_np, self.detections_nms)
@@ -1222,9 +1229,9 @@ class PoseEstimation:
                     model_points*1000,
                     K
                 )
-                print(f"pred_rot[{idx}]: ", self.pred_rot[idx])
-                print(f"pred_trans[{idx}]: ", self.pred_trans[idx])
-                print(f"Pose score[{idx}]: ", self.pose_scores[idx])
+                print(f"    pred_rot[{idx}]: ", self.pred_rot[idx])
+                print(f"    pred_trans[{idx}]: ", self.pred_trans[idx])
+                print(f"    Pose score[{idx}]: ", self.pose_scores[idx])
                 # Publish vis_img as a ROS2 Image message
                 # Convert PIL Image to numpy array
                 vis_img_np = np.array(vis_img)
