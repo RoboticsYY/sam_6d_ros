@@ -393,7 +393,7 @@ class PoseEstimation:
         else:
             self.node.get_logger().warn(f"Depth topic '{self.depth_topic}' does not exist or has wrong type.")
 
-        self.srv = node.create_service(GetPose, 'get_pose', self.handle_get_pose)
+        self.srv = node.create_service(GetPose, 'get_pose/sam6d', self.handle_get_pose)
 
         #==========Create a ROS2 publisher for visualization images==========
         self.image_pub = node.create_publisher(RosImage, 'pose_estimation/image', 10)
@@ -599,32 +599,42 @@ class PoseEstimation:
 
     def handle_get_pose(self, request, response):
         self.node.get_logger().info(f"Handling get_pose request")
-        if self.use_detection:
-            self.run_detection_inference()
-            self.run_prompt_segmentation_inference()
-        else:
-            self.run_instance_segmentation_inference()
-        self.run_pose_estimation_inference()
-
-        # Set response.pose from prediction
         pose_msg = Pose()
-        # Use the first instance's prediction
-        if hasattr(self, 'pred_rot') and hasattr(self, 'pred_trans'):
-            # Convert rotation matrix to quaternion
-            from scipy.spatial.transform import Rotation as R
-            rot = R.from_matrix(self.pred_rot[0])
-            quat = rot.as_quat()  # [x, y, z, w]
-            pose_msg.orientation.x = quat[0]
-            pose_msg.orientation.y = quat[1]
-            pose_msg.orientation.z = quat[2]
-            pose_msg.orientation.w = quat[3]
-            pose_msg.position.x = float(self.pred_trans[0][0])
-            pose_msg.position.y = float(self.pred_trans[0][1])
-            pose_msg.position.z = float(self.pred_trans[0][2])
-        else:
-            self.node.get_logger().warn("No pose prediction available, returning identity pose.")
+        ret = 1
+        try:
+            if self.use_detection:
+                self.run_detection_inference()
+                self.run_prompt_segmentation_inference()
+            else:
+                self.run_instance_segmentation_inference()
+            self.run_pose_estimation_inference()
+
+            # Set response.pose from prediction
+            # Use the first instance's prediction
+            if hasattr(self, 'pred_rot') and hasattr(self, 'pred_trans'):
+                # Convert rotation matrix to quaternion
+                from scipy.spatial.transform import Rotation as R
+                rot = R.from_matrix(self.pred_rot[0])
+                quat = rot.as_quat()  # [x, y, z, w]
+                pose_msg.orientation.x = quat[0]
+                pose_msg.orientation.y = quat[1]
+                pose_msg.orientation.z = quat[2]
+                pose_msg.orientation.w = quat[3]
+                pose_msg.position.x = float(self.pred_trans[0][0])
+                pose_msg.position.y = float(self.pred_trans[0][1])
+                pose_msg.position.z = float(self.pred_trans[0][2])
+                ret = 0
+            else:
+                self.node.get_logger().warn("No pose prediction available, returning identity pose.")
+                pose_msg.orientation.w = 1.0
+                ret = 1
+            
+        except Exception as e:
+            self.node.get_logger().error(f"Error during pose estimation: {e}")
             pose_msg.orientation.w = 1.0
+            ret = 1
         response.pose = pose_msg
+        response.ret = ret
         self.first_run = False
         self.node.get_logger().info(f"Pose estimation completed, sending response")
         return response

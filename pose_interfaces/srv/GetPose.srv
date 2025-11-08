@@ -4,3 +4,4 @@
 int8 command_id
 ---
 geometry_msgs/Pose pose
+int8 ret # result code, 0: success, 1: fail
