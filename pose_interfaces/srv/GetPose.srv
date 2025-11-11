@@ -1,5 +1,6 @@
 # command_id: 
-#   1: Get object pose in translation and rotation
+#   1: Get object pose with YOLO+MobileSAM+PEM
+#   2: Get object pose with ISM+PEM
 
 int8 command_id
 ---

@@ -371,7 +371,7 @@ class PoseEstimation:
                 10
             )
         else:
-            self.node.get_logger().warn(f"RGB topic '{self.rgb_topic}' does not exist or has wrong type.")
+            raise RuntimeError(f"RGB topic '{self.rgb_topic}' does not exist or has wrong type.")
 
         if topic_exists(self.camera_info_topic, 'sensor_msgs/msg/CameraInfo'):
             self.depth_info_sub = node.create_subscription(
@@ -381,7 +381,7 @@ class PoseEstimation:
                 10
             )
         else:
-            self.node.get_logger().warn(f"Camera info topic '{self.camera_info_topic}' does not exist or has wrong type.")
+            raise RuntimeError(f"Camera info topic '{self.camera_info_topic}' does not exist or has wrong type.")
 
         if topic_exists(self.depth_topic, 'sensor_msgs/msg/Image'):
             self.aligned_depth_sub = node.create_subscription(
@@ -391,7 +391,7 @@ class PoseEstimation:
                 10
             )
         else:
-            self.node.get_logger().warn(f"Depth topic '{self.depth_topic}' does not exist or has wrong type.")
+            raise RuntimeError(f"Depth topic '{self.depth_topic}' does not exist or has wrong type.")
 
         self.srv = node.create_service(GetPose, 'get_pose/sam6d', self.handle_get_pose)
 
@@ -602,11 +602,13 @@ class PoseEstimation:
         pose_msg = Pose()
         ret = 1
         try:
-            if self.use_detection:
+            if request.command_id == 1:
                 self.run_detection_inference()
                 self.run_prompt_segmentation_inference()
-            else:
+            elif request.command_id == 2:
                 self.run_instance_segmentation_inference()
+            else:
+                raise ValueError(f"Unsupported command_id: {request.command_id}")
             self.run_pose_estimation_inference()
 
             # Set response.pose from prediction
