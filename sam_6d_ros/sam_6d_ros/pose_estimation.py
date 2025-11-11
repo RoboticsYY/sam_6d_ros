@@ -601,15 +601,19 @@ class PoseEstimation:
         self.node.get_logger().info(f"Handling get_pose request")
         pose_msg = Pose()
         ret = 1
+        time_taken = 0.0
         try:
             if request.command_id == 1:
                 self.run_detection_inference()
                 self.run_prompt_segmentation_inference()
+                time_taken += self.yolo_time + self.mobile_sam_time
             elif request.command_id == 2:
                 self.run_instance_segmentation_inference()
+                time_taken += self.ism_time
             else:
                 raise ValueError(f"Unsupported command_id: {request.command_id}")
             self.run_pose_estimation_inference()
+            time_taken += self.pem_time
 
             # Set response.pose from prediction
             # Use the first instance's prediction
@@ -630,6 +634,8 @@ class PoseEstimation:
                 self.node.get_logger().warn("No pose prediction available, returning identity pose.")
                 pose_msg.orientation.w = 1.0
                 ret = 1
+
+            print(f"time taken for pose estimation: {time_taken*1000:.2f} ms")
             
         except Exception as e:
             self.node.get_logger().error(f"Error during pose estimation: {e}")
@@ -872,10 +878,10 @@ class PoseEstimation:
         final_score = (semantic_score + appe_scores + geometric_score*visible_ratio) / (1 + 1 + visible_ratio)
         self.detections.add_attribute("scores", final_score)
         self.detections.add_attribute("object_ids", torch.zeros_like(final_score))
-        ism_time = time.time() - ism_time_start
+        self.ism_time = time.time() - ism_time_start
 
         if not self.first_run:
-            print(f"[OpenVINO {self.pem_cfg.device}] ISM inference time: {ism_time*1000:.2f} ms")
+            print(f"[OpenVINO {self.pem_cfg.device}] ISM inference time: {self.ism_time*1000:.2f} ms")
             print(f"    generates_masks time: {ism_generates_masks_time*1000:.2f} ms")
             print(f"    descriptor time: {ism_descriptor_time*1000:.2f} ms")
             print(f"    compute_scores time: {ism_compute_scores_time*1000:.2f} ms")
@@ -965,8 +971,9 @@ class PoseEstimation:
         masks = postprocess_masks(masks, self.img_np.shape[:-1], resizer=resizer)
         masks = masks > 0.0
         sam_end_time = time.time()
+        self.mobile_sam_time = sam_end_time - sam_start_time
         # print(f"SAM generated mask shape: {masks.shape}")
-        print(f"    SAM inference time: {(sam_end_time - sam_start_time)*1000:.2f} ms")
+        print(f"    SAM inference time: {self.mobile_sam_time*1000:.2f} ms")
         # Ensure masks is 2D (height, width)
         if masks.ndim == 4:
             masks = masks[0, 0]
@@ -1025,7 +1032,8 @@ class PoseEstimation:
         # Run inference
         results = self.yolo_compiled_model({self.yolo_compiled_model.input(0): img_rgb})
         yolo_end_time = time.time()
-        print(f"    YOLO inference time: {(yolo_end_time - yolo_start_time)*1000:.2f} ms")
+        self.yolo_time = yolo_end_time - yolo_start_time
+        print(f"    YOLO inference time: {self.yolo_time*1000:.2f} ms")
         # print("YOLO inference results:", results)
         # Adapt to YOLO output format: {output: array([[[x1, y1, x2, y2, conf, ...], ...]], dtype=float32)}
         yolo_output = results
@@ -1219,9 +1227,9 @@ class PoseEstimation:
             pred_pose_score = ov_pem_sub4_results[2]
         # ==============[Pass]OpenVINO Sub4 model ============================
         pred_t = pred_t * (radius.reshape(-1, 1)+1e-6)
-        pem_model_time = time.time() - pem_time_start
+        self.pem_time = time.time() - pem_time_start
         if not self.first_run:
-            print(f"[OpenVINO {self.pem_cfg.device}] OpenVINO PEM model inference time: {pem_model_time*1000:.2f} ms")
+            print(f"[OpenVINO {self.pem_cfg.device}] OpenVINO PEM model inference time: {self.pem_time*1000:.2f} ms")
             print(f"    ov_pem_sub1 inference time: {pem_sub1_time*1000:.2f} ms")
             print(f"    ov_pem_sub2 inference time: {pem_sub2_time*1000:.2f} ms")
             print(f"    ov_pem_sub3 inference time: {pem_sub3_time*1000:.2f} ms")
