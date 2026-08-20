@@ -88,11 +88,64 @@ ROS parameter files do not expand these shell variables.
 - A CAD model in millimeters and its 42 rendered template views
 - A single-class YOLO OpenVINO model with input shape `[1,3,640,640]`
 
-The OpenVINO SAM-6D setup and model export procedure is documented in:
+## Set Up OpenVINO SAM-6D Dependencies
 
-```text
-<path-to-openvino_contrib>/modules/3d/OV-SAM-6D/OV_README.md
+This ROS package does not install SAM-6D or its Python inference dependencies.
+Prepare `openvino_contrib/modules/3d/OV-SAM-6D` and the `ov_sam6d` Conda
+environment before building the ROS workspace.
+
+The `OV-SAM-6D` directory initially contains the OpenVINO port and patches, but
+not the complete upstream SAM-6D source tree. Reconstruct it once from the
+pinned upstream revision:
+
+```bash
+cd "$OV_SAM6D_ROOT"
+./setup_from_original.sh
 ```
+
+The script requires Git and internet access. It creates the complete tree at
+`$SAM6D_ROOT` and writes `$SAM6D_ROOT/.ov_setup_done`. A successful setup must
+leave `$SAM6D_ROOT/Instance_Segmentation_Model` and
+`$SAM6D_ROOT/Pose_Estimation_Model` present.
+
+Create the inference environment from the supplied definition:
+
+```bash
+source "$CONDA_ROOT/etc/profile.d/conda.sh"
+cd "$SAM6D_ROOT"
+conda env create -f ov_environment_u24.yaml
+conda activate ov_sam6d
+python --version
+```
+
+The environment definition creates `ov_sam6d` with Python 3.11 and installs
+the Torch, OpenCV, BlenderProc, ISM, FastSAM, DINOv2, and PEM Python
+dependencies. If the environment already exists, update it instead:
+
+```bash
+conda env update -n ov_sam6d -f "$SAM6D_ROOT/ov_environment_u24.yaml" --prune
+```
+
+Next, source the OpenVINO runtime and follow `$OV_SAM6D_ROOT/OV_README.md` to
+complete the model setup. In particular, the ROS pipelines require you to:
+
+1. Download and export the FastSAM and DINOv2 ISM models.
+2. Convert the selected SAM2 variant into image-encoder and mask-predictor IRs.
+3. Download PEM, build the OpenVINO PointNet2 operation, install PointNet2 into
+   `ov_sam6d`, and convert the PEM models to OpenVINO IR.
+4. Render the 42 RGB, mask, and XYZ template views from the target CAD model.
+
+Use the environment's interpreter as the ROS parameter `inference_python`:
+
+```bash
+export INFERENCE_PYTHON="$(conda run -n ov_sam6d python -c \
+  'import sys; print(sys.executable)')"
+test -x "$INFERENCE_PYTHON"
+```
+
+Do not activate `ov_sam6d` when building or starting the ROS 2 Jazzy node.
+ROS uses system Python 3.12; the node launches `sam6d_worker.py` separately with
+`INFERENCE_PYTHON` from the Python 3.11 Conda environment.
 
 Verify the required runtime artifacts:
 
