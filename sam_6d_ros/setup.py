@@ -86,7 +86,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'pose_estimation = sam_6d_ros.pose_estimation:main',
+            'pose_estimation = sam_6d_ros.pose_estimation_v2:main',
         ],
     },
 )

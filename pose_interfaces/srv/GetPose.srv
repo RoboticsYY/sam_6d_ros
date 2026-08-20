@@ -1,6 +1,6 @@
 # command_id: 
-#   1: Get object pose with YOLO+MobileSAM+PEM
-#   2: Get object pose with ISM+PEM
+#   1: Get object pose with YOLO + OpenVINO SAM2 small + OpenVINO PEM
+#   2: Get object pose with OpenVINO FastSAM ISM + OpenVINO PEM
 
 int8 command_id
 ---

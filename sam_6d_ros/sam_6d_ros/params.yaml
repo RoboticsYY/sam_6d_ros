@@ -1,14 +1,15 @@
 pose_estimation:
     ros__parameters:
-        segmentor_model: "fastsam"
-        output_dir : "/home/intel/tmp/sam_6d_ros"
-        cad_path : "/home/intel/tmp/sam_6d_ros/cad/logistics-box.ply"
-        stability_score_thresh : 0.97
-        depth_scale : 1.0
-        visualize : True
-        use_detection : True
-        model_dir : "/home/intel/ws_sam6d/checkpoints"
-        ov_extension_lib_path : "/usr/local/lib/libopenvino_operation_extension.so"
-        rgb_topic : "/camera/camera/color/image_raw"
-        depth_topic : "/camera/camera/aligned_depth_to_color/image_raw"
-        camera_info_topic : "/camera/camera/aligned_depth_to_color/camera_info"
+        sam6d_root: "/home/intel/yy/openvino_contrib/modules/3d/OV-SAM-6D/SAM-6D"
+        output_dir: "/home/intel/yy/ws_sam6d_ov/validation"
+        cad_path: "/home/intel/yy/logistics-box.ply"
+        templates_dir: "/home/intel/yy/templates"
+        detector_path: "/home/intel/yy/det"
+        sam2_variant: "sam2_hiera_small"
+        inference_python: "/home/intel/miniforge3/envs/ov_sam6d/bin/python"
+        device: "GPU"
+        precision: "fp16"
+        detector_threshold: 0.2
+        rgb_topic: "/camera/color/image_raw"
+        depth_topic: "/camera/aligned_depth_to_color/image_raw"
+        camera_info_topic: "/camera/aligned_depth_to_color/camera_info"
