@@ -43,6 +43,10 @@ def parse_args():
             "sam2_hiera_small",
             "sam2_hiera_base_plus",
             "sam2_hiera_large",
+            "sam2.1_hiera_tiny",
+            "sam2.1_hiera_small",
+            "sam2.1_hiera_base_plus",
+            "sam2.1_hiera_large",
         ),
         default="sam2_hiera_small",
     )

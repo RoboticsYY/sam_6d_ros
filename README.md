@@ -130,7 +130,8 @@ Next, source the OpenVINO runtime and follow `$OV_SAM6D_ROOT/OV_README.md` to
 complete the model setup. In particular, the ROS pipelines require you to:
 
 1. Download and export the FastSAM and DINOv2 ISM models.
-2. Convert the selected SAM2 variant into image-encoder and mask-predictor IRs.
+2. Convert the selected SAM2 or SAM2.1 variant into image-encoder and
+  mask-predictor IRs.
 3. Download PEM, build the OpenVINO PointNet2 operation, install PointNet2 into
    `ov_sam6d`, and convert the PEM models to OpenVINO IR.
 4. Render the 42 RGB, mask, and XYZ template views from the target CAD model.
@@ -167,13 +168,13 @@ source "$OPENVINO_ROOT/setupvars.sh"
   "import openvino; print(openvino.__version__)"
 ```
 
-The SAM2 model was converted following the OpenVINO 2026.3
+The SAM2 and SAM2.1 models were converted following the OpenVINO 2026.3
 [`sam2-image-segmentation` notebook](https://github.com/openvinotoolkit/openvino_notebooks/blob/2026.3/notebooks/sam2-image-segmentation/segment-anything-2-image.ipynb).
-The `facebook/sam2-hiera-small` checkpoint is split into a 1024 x 1024 image
-encoder and a prompt-mask predictor. The mask predictor consumes the image
-embedding, two high-resolution feature maps, and native box-corner labels `2`
-and `3`. SAM2 is needed for conversion only; runtime inference uses the saved
-OpenVINO IRs.
+Each checkpoint is split into a 1024 x 1024 image encoder and a prompt-mask
+predictor. The mask predictor consumes the image embedding, two high-resolution
+feature maps, and native box-corner labels `2` and `3`. The SAM2 Python package
+and checkpoints are needed for conversion only; runtime inference uses the
+saved OpenVINO IRs.
 
 ## Create the ROS 2 Workspace
 
@@ -219,8 +220,10 @@ parameters under `pose_estimation.ros__parameters` as follows:
 views `0` through `41`.
 
 `sam2_variant` accepts `sam2_hiera_tiny`, `sam2_hiera_small`,
-`sam2_hiera_base_plus`, or `sam2_hiera_large`. Each selected variant directory
-must contain `ov_image_encoder.xml/.bin` and `ov_mask_predictor.xml/.bin`.
+`sam2_hiera_base_plus`, `sam2_hiera_large`, `sam2.1_hiera_tiny`,
+`sam2.1_hiera_small`, `sam2.1_hiera_base_plus`, or `sam2.1_hiera_large`. Each
+selected variant directory must contain `ov_image_encoder.xml/.bin` and
+`ov_mask_predictor.xml/.bin`.
 
 ## Build
 
@@ -425,39 +428,53 @@ aggregate mean of `122.15 ms` across 60 measured requests. This is approximately
 profiling-enabled run. They are not simultaneous with the production host
 latency measurement because profiling adds synchronization overhead.
 
-#### SAM2 Variant Comparison
+#### SAM2 and SAM2.1 Variant Comparison
 
-All four SAM2 checkpoints were converted with the same OpenVINO 2026.3 notebook
-wrappers and evaluated on the same saved RGB/depth frame, YOLO box, camera
-calibration, CAD, and templates. SAM2 used 3 warm-up requests followed by 20
-measurements. Each selected mask then used an unprofiled PEM batch-1 run with 10
-warm-ups and 20 measurements. These controlled single-trial numbers compare
-variants; the production table above uses the more rigorous multi-trial PEM
-aggregate.
+All four SAM2 and four SAM2.1 checkpoints were converted with the same OpenVINO
+2026.3 notebook wrappers and evaluated on the same saved RGB/depth frame, YOLO
+box, camera calibration, CAD, and templates. Each segmentor used 3 warm-up
+requests followed by 20 measurements. Each selected mask then used an
+unprofiled PEM batch-1 run with 10 warm-ups and 20 measurements. These
+controlled single-trial numbers compare variants; the production table above
+uses the more rigorous multi-trial PEM aggregate.
 
-| SAM2 variant | OpenVINO IR size | YOLO + SAM2 compile | SAM2 host | SAM2 GPU-only | PEM host | Pipeline host |
+| Variant | OpenVINO IR size | YOLO + SAM compile | SAM host | SAM GPU-only | PEM host | Pipeline host |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Hiera Tiny | 73.70 MiB | 5.48 s | **69.09 ms** | **51.39 ms** | 116.14 ms | **198.61 ms** |
-| Hiera Small | 87.24 MiB | 5.96 s | 77.14 ms | 56.96 ms | 117.95 ms | 208.59 ms |
-| Hiera Base Plus | 155.59 MiB | 8.43 s | 118.79 ms | 92.46 ms | 116.87 ms | 249.52 ms |
-| Hiera Large | 433.48 MiB | 10.40 s | 292.04 ms | 252.76 ms | 116.53 ms | 422.60 ms |
+| SAM2 Hiera Tiny | 73.70 MiB | 5.48 s | 69.09 ms | 51.39 ms | 116.14 ms | **198.61 ms** |
+| SAM2 Hiera Small | 87.24 MiB | 5.96 s | 77.14 ms | 56.96 ms | 117.95 ms | 208.59 ms |
+| SAM2 Hiera Base Plus | 155.59 MiB | 8.43 s | 118.79 ms | 92.46 ms | 116.87 ms | 249.52 ms |
+| SAM2 Hiera Large | 433.48 MiB | 10.40 s | 292.04 ms | 252.76 ms | 116.53 ms | 422.60 ms |
+| SAM2.1 Hiera Tiny | 73.70 MiB | 5.74 s | **68.98 ms** | **51.25 ms** | 117.59 ms | 200.13 ms |
+| SAM2.1 Hiera Small | 87.24 MiB | **5.44 s** | 77.94 ms | 57.61 ms | 117.98 ms | 209.47 ms |
+| SAM2.1 Hiera Base Plus | 155.59 MiB | 6.46 s | 119.20 ms | 93.36 ms | 118.23 ms | 251.24 ms |
+| SAM2.1 Hiera Large | 433.48 MiB | 8.27 s | 299.59 ms | 258.49 ms | **114.64 ms** | 428.41 ms |
 
-`Pipeline host` is the sum of the measured YOLO, SAM2, and PEM host means. Model
+`Pipeline host` is the sum of the measured YOLO, SAM, and PEM host means. Model
 loading/compilation is excluded from pipeline latency and shown separately.
 
-| SAM2 variant | Predicted IoU | Mask/YOLO-box IoU | Mask containment | PEM pose score |
+| Variant | Predicted IoU | Mask/YOLO-box IoU | Mask containment | PEM pose score |
 | --- | ---: | ---: | ---: | ---: |
-| Hiera Tiny | 0.8915 | 0.8087 | 93.70% | 0.7899 |
-| Hiera Small | 0.9572 | 0.8532 | 99.67% | 0.8500 |
-| Hiera Base Plus | 0.9495 | **0.8630** | 99.41% | 0.8532 |
-| Hiera Large | **0.9754** | 0.8597 | 99.61% | **0.8570** |
+| SAM2 Hiera Tiny | 0.8915 | 0.8087 | 93.70% | 0.7899 |
+| SAM2 Hiera Small | 0.9572 | 0.8532 | 99.67% | 0.8500 |
+| SAM2 Hiera Base Plus | 0.9495 | **0.8630** | 99.41% | 0.8532 |
+| SAM2 Hiera Large | **0.9754** | 0.8597 | 99.61% | 0.8570 |
+| SAM2.1 Hiera Tiny | 0.8727 | 0.8359 | 99.73% | 0.7920 |
+| SAM2.1 Hiera Small | 0.9679 | 0.8478 | 99.85% | 0.8568 |
+| SAM2.1 Hiera Base Plus | 0.8738 | 0.6950 | **100.00%** | 0.7860 |
+| SAM2.1 Hiera Large | 0.9686 | 0.8137 | 92.70% | **0.8637** |
 
-Hiera Tiny is about 10 ms faster end to end than Small, but its mask has lower
-box IoU, lower containment, and a lower PEM pose score. Base Plus improves box
-IoU by only 0.0098 and pose score by 0.0032 over Small while adding about 41 ms
-to pipeline latency. Large adds about 214 ms over Small for a 0.007 pose-score
-gain. `sam2_hiera_small` remains the production default because it provides the
-best latency/quality balance for this object and frame.
+SAM2.1 Small adds only `0.88 ms` to the pipeline relative to SAM2 Small and
+improves the PEM pose score from `0.8500` to `0.8568`, making it the strongest
+drop-in alternative at the Small model size. SAM2.1 Large has the highest pose
+score, but adds about `219 ms` over SAM2.1 Small. SAM2.1 Base Plus regresses on
+both box IoU and pose score for this frame. `sam2_hiera_small` remains the
+configured production default for continuity; use `sam2.1_hiera_small` when the
+measured pose-score improvement is preferred over exact baseline behavior.
+
+Predicted IoU is the model's own quality estimate. Mask/YOLO-box IoU and mask
+containment measure agreement with the detector rectangle, not with a
+ground-truth segmentation. These single-frame quality results should therefore
+be validated on a representative dataset before changing a production model.
 
 Machine-readable per-variant results are stored under
 `validation/sam2_variant_benchmarks/`.
